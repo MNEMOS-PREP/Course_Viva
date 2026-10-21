@@ -1,0 +1,10 @@
+===============================================================================
+  M20 — COURSE VIVA · CREDENTIALS
+===============================================================================
+
+NONE TODAY. The library (phase 1) needs no key: the catalogue sync reads public
+pages, and browse, upload, import and search run locally.
+
+The viva (phase 2) will need one LLM key, for question generation and marking.
+It will be listed here, with what it buys you, when that code lands. Until then
+there is nothing to copy into keys.txt.

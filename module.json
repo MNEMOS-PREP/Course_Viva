@@ -1,0 +1,45 @@
+{
+  "module": "M20",
+  "name": "Course Viva",
+  "spec": "plan_in_depth/M20_Course_Viva.md",
+  "repo": "https://github.com/MNEMOS-PREP/Course_Viva",
+  "owner": "E3",
+  "phase": "3",
+  "ports": {
+    "backend": 8120,
+    "frontend": 5220
+  },
+  "core": {
+    "repo": "https://github.com/MNEMOS-PREP/Platform_Core",
+    "version": "v0.38.0"
+  },
+
+  "_comment_depends_on": [
+    "Nothing is required: the library browses, imports and searches with no other",
+    "module running. The viva (phase 2) speaks through M11 and records evidence in",
+    "M04; without them it degrades to typed answers and keeps its report here.",
+    "Override any base_url without editing this file: M04_BASE_URL=http://..."
+  ],
+  "depends_on": [
+    {
+      "module": "M04",
+      "name": "Skill Graph & MNEMOS Memory",
+      "repo": "https://github.com/MNEMOS-PREP/Memory",
+      "reason": "course concepts, and viva results as evidence (phase 2)",
+      "on_missing": "Vivas still run and are reported here; they do not reach your skill graph until it is back.",
+      "base_url": "http://127.0.0.1:8104",
+      "health_path": "/health",
+      "required": false
+    },
+    {
+      "module": "M11",
+      "name": "Voice & Conversation Engine",
+      "repo": "https://github.com/MNEMOS-PREP/Voice_Engine",
+      "reason": "the examiner's voice and listening to spoken answers (phase 2)",
+      "on_missing": "Vivas can be answered by typing; speaking practice needs the voice engine.",
+      "base_url": "http://127.0.0.1:8111",
+      "health_path": "/health",
+      "required": false
+    }
+  ]
+}

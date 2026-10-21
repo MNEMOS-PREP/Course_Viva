@@ -1,0 +1,37 @@
+===============================================================================
+  M20 — COURSE VIVA · DEPENDENCIES
+  Repo: https://github.com/MNEMOS-PREP/Course_Viva
+  Spec: plan_in_depth/M20_Course_Viva.md
+  Last updated: 2026-10-21
+===============================================================================
+
+This repo holds ONE module. It clones, installs and runs on its own.
+
+The machine-readable version of this file is `module.json`. The backend reads
+it for /v1/deps; if you edit one, edit both.
+
+
+WHAT THIS MODULE NEEDS (upstream)
+-------------------------------------------------------------------------------
+Nothing is required. The library (phase 1) browses, imports and searches with
+no other module running.
+
+  MODULE  WHAT WE USE IT FOR                   IF MISSING
+  ------  ----------------------------------   ----------------------------------
+  M04     course concepts; viva results as     Vivas still run and are reported
+          evidence in the skill graph          here; they reach the skill graph
+          (phase 2)                            once it is back.
+  M11     the examiner's voice, and listening  Vivas can be answered by typing;
+          to spoken answers (phase 2)          speaking practice needs M11.
+
+
+WHAT ELSE IT READS
+-------------------------------------------------------------------------------
+  amrita.edu   The curriculum page, programme pages and curriculum PDFs, read
+               only by jobs/sync_catalogue.py, never at request time. Its
+               output is committed: packages/catalogue/amrita.json.
+
+
+WHO USES THIS MODULE (downstream)
+-------------------------------------------------------------------------------
+  Platform_Shell   mounts `m20Routes` under /library (phase 4).
