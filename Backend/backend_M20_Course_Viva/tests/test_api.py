@@ -64,6 +64,20 @@ def test_a_folder_import_is_the_curators_and_dry_runs_first(client):
     assert done["added"] == 1
 
 
+def test_a_file_too_large_to_import_is_said_not_dropped(client, monkeypatch):
+    from backend_M20_Course_Viva import config
+
+    monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 100)
+    folder = "Amrita University/Coimbatore/CSE/Semester_4/23CSE201 - Operating Systems"
+    files = [
+        ("files", (f"{folder}/big.txt", b"x" * 101, "text/plain")),
+        ("files", (f"{folder}/small.txt", b"Paging in brief. " * 4, "text/plain")),
+    ]
+    done = client.post("/v1/library/import?dry_run=false", files=files, headers=as_curator()).json()
+    assert done["added"] == 1
+    assert done["problems"] == [{"path": f"{folder}/big.txt", "reason": "the file is too large"}]
+
+
 def test_search_and_coverage_answer(client):
     assert client.get("/v1/library/search", params={"q": "operating"}).json()["courses"]
     rows = client.get("/v1/library/coverage").json()

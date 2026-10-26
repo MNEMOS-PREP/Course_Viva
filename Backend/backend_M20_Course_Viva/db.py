@@ -38,6 +38,7 @@ def init(target=None) -> None:
     from . import models  # noqa: F401 - registers the tables
 
     target = target or engine
+    _owner_unique(target)
     SQLModel.metadata.create_all(target)
     with target.begin() as conn:
         conn.execute(
@@ -46,6 +47,48 @@ def init(target=None) -> None:
                 "USING fts5(text, material_id UNINDEXED, page UNINDEXED, tokenize='unicode61')"
             )
         )
+
+
+#: The constraint a material table made before 2026-10-26 carries.
+_OLD_UNIQUE = "CONSTRAINT uq_material_course_hash UNIQUE"
+
+
+def _owner_unique(target) -> None:
+    """2026-10-26: a material is unique per course, file AND uploader (it was
+    per course and file, which handed one student's private copy to the next
+    to upload the same file). SQLite cannot change a constraint in place, so a
+    table made before is rebuilt the way its docs give, its rows kept."""
+    from sqlalchemy.schema import CreateIndex, CreateTable  # noqa: PLC0415
+
+    from .models import Material  # noqa: PLC0415
+
+    with target.connect() as conn:
+        if conn.dialect.name != "sqlite":
+            return
+        ddl = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'material'")
+        ).scalar()
+        if not ddl or _OLD_UNIQUE not in ddl:
+            return
+        table = Material.__table__
+        columns = ", ".join(column.name for column in table.columns)
+        create = str(CreateTable(table).compile(conn)).replace(
+            "CREATE TABLE material ", "CREATE TABLE material_new ", 1
+        )
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")  # material_page points here
+        try:
+            conn.exec_driver_sql("DROP TABLE IF EXISTS material_new")
+            conn.exec_driver_sql(create)
+            conn.exec_driver_sql(
+                f"INSERT INTO material_new ({columns}) SELECT {columns} FROM material"
+            )
+            conn.exec_driver_sql("DROP TABLE material")
+            conn.exec_driver_sql("ALTER TABLE material_new RENAME TO material")
+            for index in table.indexes:
+                conn.execute(CreateIndex(index))
+            conn.commit()
+        finally:
+            conn.exec_driver_sql("PRAGMA foreign_keys=ON")
 
 
 def get_session() -> Iterator[Session]:

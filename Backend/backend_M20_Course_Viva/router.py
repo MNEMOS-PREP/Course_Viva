@@ -211,9 +211,13 @@ async def import_folder(
             "would_add": [p.__dict__ for p in found.placed],
             "problems": found.problems,
         }
-    payload = {}
+    payload, too_large = {}, []
     for upload in files:
         data = await upload.read(config.MAX_UPLOAD_BYTES + 1)
         if len(data) <= config.MAX_UPLOAD_BYTES:
             payload[upload.filename or ""] = data
-    return {"dry_run": False, **importer.run(db, payload, viewer.subject, shared=shared)}
+        else:
+            # Said, like every file that could not go in — never dropped silently.
+            too_large.append({"path": upload.filename or "", "reason": "the file is too large"})
+    result = importer.run(db, payload, viewer.subject, shared=shared)
+    return {"dry_run": False, **result, "problems": too_large + result["problems"]}

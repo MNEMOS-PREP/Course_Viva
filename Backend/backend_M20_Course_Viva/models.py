@@ -88,7 +88,12 @@ class Course(SQLModel, table=True):
 
 
 class Material(SQLModel, table=True):
-    __table_args__ = (UniqueConstraint("course_id", "sha256", name="uq_material_course_hash"),)
+    # One per course, file and uploader: a private copy is its owner's alone
+    # (AC-20.3), so a second student's copy of the same file is a row of its
+    # own. One file shared with everyone stays one material (`materials`).
+    __table_args__ = (
+        UniqueConstraint("course_id", "sha256", "added_by", name="uq_material_course_hash_owner"),
+    )
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
     course_id: str = Field(foreign_key="course.id", index=True)

@@ -38,6 +38,24 @@ def _check(session: Session, course_id: str, kind: str, visibility: str, campus_
         raise MaterialError("No such campus.")
 
 
+def _existing(rows: list[Material], added_by: str) -> Material | None:
+    """The material this upload already is: the uploader's own copy, else one
+    shared with everyone (EC-20.10). Someone else's private or held copy is
+    theirs alone and is never handed to another uploader (AC-20.3): this
+    upload becomes a material of its own."""
+    own = next((m for m in rows if m.added_by == added_by), None)
+    if own is not None:
+        if own.status == "removed":
+            raise MaterialError("This file was taken down from this course.")
+        return own
+    if any(m.status == "removed" and m.visibility != "private" for m in rows):
+        # EC-20.9: shared material taken down does not come back under
+        # another name or another uploader. A private copy its owner removed
+        # stops no one else.
+        raise MaterialError("This file was taken down from this course.")
+    return next((m for m in rows if m.status == "published" and m.visibility == "platform"), None)
+
+
 def _settle(visibility: str, permission: str | None, by_curator: bool) -> str:
     """Shared with everyone needs a stated permission, or a curator (EC-20.8)."""
     if visibility == "platform" and not (permission or "").strip() and not by_curator:
@@ -64,12 +82,11 @@ def add_file(
     if not data:
         raise MaterialError("The file is empty.")
     digest = storage.sha256(data)
-    existing = session.exec(
+    same = session.exec(
         select(Material).where(Material.course_id == course_id, Material.sha256 == digest)
-    ).first()
+    ).all()
+    existing = _existing(list(same), added_by)
     if existing is not None:
-        if existing.status == "removed":
-            raise MaterialError("This file was taken down from this course.")
         return Added(existing, False)
     storage.save(data, filename)
     found = extract(data, filename)
@@ -121,9 +138,10 @@ def add_link(
     _check(session, course_id, kind, visibility, campus_id)
     if not url.startswith(("https://", "http://")):
         raise MaterialError("A link must start with http:// or https://.")
-    existing = session.exec(
+    same = session.exec(
         select(Material).where(Material.course_id == course_id, Material.url == url)
-    ).first()
+    ).all()
+    existing = _existing(list(same), added_by)
     if existing is not None:
         return Added(existing, False)
     material = Material(

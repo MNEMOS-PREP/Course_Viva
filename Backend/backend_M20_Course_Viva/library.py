@@ -3,6 +3,7 @@ coverage. Read-only; every query respects who is looking (AC-20.3)."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from sqlalchemy import case, false, func, or_, text
@@ -20,13 +21,19 @@ class Viewer:
     admin: bool = False
 
 
+#: What each viewer sees besides their own (AC-20.3): what is shared, and for
+#: a curator what waits for them (`held`, EC-20.8). Never someone's private
+#: copy — private is its owner's alone, the placement cell included.
+SHOWN = ("platform",)
+SHOWN_TO_CURATORS = ("platform", "held")
+
+
 def visible(viewer: Viewer):
     """The one visibility rule: published, and either shared or the viewer's own."""
     rule = Material.status == "published"
-    if viewer.admin:
-        return rule
     own = Material.added_by == viewer.subject if viewer.subject else false()
-    return rule & or_(Material.visibility == "platform", own)
+    shown = SHOWN_TO_CURATORS if viewer.admin else SHOWN
+    return rule & or_(Material.visibility.in_(shown), own)
 
 
 def _material_counts(session: Session, viewer: Viewer, course_ids: list[str]) -> dict[str, int]:
@@ -161,11 +168,13 @@ def course(session: Session, course_id: str, viewer: Viewer) -> dict | None:
         return None
     cur = session.get(Curriculum, row.curriculum_id)
     prog = session.get(Programme, cur.programme_id) if cur else None
-    materials = session.exec(
-        select(Material)
-        .where(Material.course_id == course_id, visible(viewer))
-        .order_by(Material.kind, Material.unit, Material.created_at)
-    ).all()
+    materials = sorted(
+        session.exec(
+            select(Material).where(Material.course_id == course_id, visible(viewer))
+        ).all(),
+        # SQLite hands created_at back naive; one just made is aware.
+        key=lambda m: (m.kind, _unit_order(m.unit), m.created_at.replace(tzinfo=None)),
+    )
     return {
         "course": row.model_dump(),
         "curriculum": (
@@ -182,6 +191,14 @@ def course(session: Session, course_id: str, viewer: Viewer) -> dict | None:
         "programme": prog.model_dump() if prog else None,
         "materials": [_material_out(m) for m in materials],
     }
+
+
+def _unit_order(unit: str | None) -> tuple:
+    """"Unit 2" before "Unit 10": numbers compared as numbers. No unit first."""
+    if not unit:
+        return (0,)
+    parts = re.split(r"(\d+)", unit.casefold())
+    return (1, *((int(p) if i % 2 else p) for i, p in enumerate(parts)))
 
 
 def _material_out(m: Material) -> dict:
@@ -247,30 +264,41 @@ def search(
         }  # fmt: skip
         for c, cur, prog, rank in session.exec(course_q.limit(limit)).all()
     ]
-    # FTS5: each word a prefix term, all required.
+    # FTS5: each word a prefix term, all required. Who may see a page, and the
+    # programme and semester asked for, are part of the query: filtered after
+    # its LIMIT, the best hits being someone else's private notes or another
+    # programme's left a filtered search empty while matches existed.
     match = " ".join(f'"{w}"*' for w in words)
+    shown = SHOWN_TO_CURATORS if viewer.admin else SHOWN
+    marks = ", ".join(f":v{i}" for i in range(len(shown)))
     rows = session.exec(
         text(
-            f"SELECT material_id, page, snippet({FTS_TABLE}, 0, '[', ']', '…', 14) "
-            f"FROM {FTS_TABLE} WHERE {FTS_TABLE} MATCH :m ORDER BY rank LIMIT :n"
-        ).bindparams(m=match, n=limit * 3)
+            f"SELECT {FTS_TABLE}.material_id, {FTS_TABLE}.page, "
+            f"snippet({FTS_TABLE}, 0, '[', ']', '…', 14) FROM {FTS_TABLE} "
+            f"JOIN material ON material.id = {FTS_TABLE}.material_id "
+            "JOIN course ON course.id = material.course_id "
+            "JOIN curriculum ON curriculum.id = course.curriculum_id "
+            f"WHERE {FTS_TABLE} MATCH :m AND material.status = 'published' "
+            f"AND (material.visibility IN ({marks}) OR material.added_by = :viewer) "
+            "AND (:programme IS NULL OR curriculum.programme_id = :programme) "
+            "AND (:semester IS NULL OR course.semester = :semester) "
+            f"ORDER BY {FTS_TABLE}.rank LIMIT :n"
+        ).bindparams(
+            m=match,
+            viewer=viewer.subject,
+            programme=programme_id,
+            semester=semester,
+            n=limit,
+            **{f"v{i}": v for i, v in enumerate(shown)},
+        )
     ).all()
     pages = []
     for material_id, page, snippet in rows:
         material = session.get(Material, material_id)
-        if (
-            material is None
-            or not session.exec(
-                select(Material.id).where(Material.id == material_id, visible(viewer))
-            ).first()
-        ):
+        if material is None:
             continue
         course_row = session.get(Course, material.course_id)
         cur = session.get(Curriculum, course_row.curriculum_id) if course_row else None
-        if programme_id and (cur is None or cur.programme_id != programme_id):
-            continue
-        if semester is not None and (course_row is None or course_row.semester != semester):
-            continue
         pages.append(
             {
                 "material_id": material_id,
@@ -283,8 +311,6 @@ def search(
                 "campuses": offered.get(cur.programme_id, []) if cur else [],
             }  # fmt: skip
         )
-        if len(pages) >= limit:
-            break
     return {"courses": courses, "pages": pages}
 
 
