@@ -19,6 +19,25 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 
 ---
 
+### 2026-10-26 — the library's privacy and search, fixed (`8b6725e`)
+
+- ✅ **A private copy stays its owner's (AC-20.3).** A material was unique per
+  course and file, so a second student adding the same file was handed the first
+  one's private or held row — its title, file name and permission — and their
+  own upload vanished. Unique per course, file and uploader now (SQLite tables
+  made before are rebuilt at start, rows kept); one file shared with everyone is
+  still one material (EC-20.10); a shared file taken down stays down for
+  everyone (EC-20.9); a private copy its owner removed stops no one else.
+- ✅ **Curators no longer see private material.** They see what is shared and
+  what waits for them (`held`); "seen only by its owner and the curator" in the
+  old gate test was the leak, not the rule.
+- ✅ **Filtered search finds what matches:** visibility, programme and semester
+  were applied after the query's LIMIT.
+- ✅ A folder import says when a file is over the size limit (it was dropped
+  without a word); units sort as numbers ("Unit 2" before "Unit 10").
+- ⬜ **EC-20.4's "five campus tags"** is not built: the same file under five
+  campus folders is one material carrying the first campus only. 31 tests.
+
 ## 0. Why this module, and what it is not
 
 Students asked for **general viva practice** — lab exams, viva voce, end-semester
