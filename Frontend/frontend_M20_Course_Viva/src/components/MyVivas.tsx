@@ -46,7 +46,7 @@ export function MyVivas() {
                   <span className="block font-medium text-ink">{scopeLabel(v.scope, v.part)}</span>
                   <span className="text-xs text-ink-faint">
                     {v.course && <span className="code mr-2">{v.course.code}</span>}
-                    {v.course?.title} · {v.style === "lab" ? "lab viva · " : ""}
+                    {v.course?.title} · {v.retry ? "second go · " : ""}{v.style === "lab" ? "lab viva · " : ""}
                     {new Date(v.started_at).toLocaleDateString()}
                   </span>
                 </span>

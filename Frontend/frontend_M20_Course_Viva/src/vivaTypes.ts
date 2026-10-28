@@ -30,6 +30,8 @@ export interface VivaPart {
   part: number;
   first: number;
   last: number;
+  /** What its pages are about, from their own first lines. */
+  topics: string[];
   pages_with_text: number;
   /** Pages with no text at all: a diagram, or an equation drawn as a picture. */
   picture_pages: number[];
@@ -212,6 +214,10 @@ export interface VivaReport {
     examiner: string;
     mode: "typed" | "spoken";
     style: VivaStyle;
+    /** A second go: the viva whose missed questions this asked again. */
+    retry_of: string | null;
+    /** Questions not right first time: what a second go would ask. */
+    missed: number;
     status: "live" | "ended";
     end_reason: string | null;
     target: number;
@@ -253,6 +259,8 @@ export interface VivaSummary {
   status: "live" | "ended";
   mode: "typed" | "spoken";
   style: VivaStyle;
+  /** A second go at an earlier viva's missed questions. */
+  retry: boolean;
   started_at: string;
   target: number;
   correct: number;
@@ -268,6 +276,8 @@ export interface StartVivaInput {
   mode?: "typed" | "spoken";
   style?: VivaStyle;
   questions?: number;
+  /** A second go at this viva's questions not right first time. */
+  retry_of?: string;
 }
 
 export interface AnswerTiming {

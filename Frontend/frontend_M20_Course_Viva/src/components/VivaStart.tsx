@@ -198,7 +198,7 @@ export function VivaStart({ courseId }: { courseId: string }) {
           </span>
         </p>
       </div>
-      <fieldset className="mt-4">
+      <fieldset className="mt-4 min-w-0">
         <legend className="eyebrow mb-1">Examine me on</legend>
         {option("all", pick.kind === "all", () => setPick({ kind: "all" }), "Everything here")}
         {s.units.map((unit) =>
@@ -254,7 +254,7 @@ export function VivaStart({ courseId }: { courseId: string }) {
           </span>
         </label>
       )}
-      <fieldset className="mt-3">
+      <fieldset className="mt-3 min-w-0">
         <legend className="eyebrow mb-1">Answer by</legend>
         <div role="group" className="grid grid-cols-2 gap-1 rounded-lg border border-line p-0.5">
           {(
@@ -316,13 +316,18 @@ export function VivaStart({ courseId }: { courseId: string }) {
 function PartLabel({ part, reading }: { part: VivaPart; reading: boolean }) {
   const pictures = part.picture_pages.length;
   return (
-    <span className="flex flex-wrap items-baseline gap-x-2" data-numeric>
+    <span className="flex min-w-0 flex-wrap items-baseline gap-x-2" data-numeric>
       <span>{pagesLabel(part.first, part.last).replace(/^p/, "P")}</span>
       {part.pages_with_text === 0 ? (
         <span className="text-xs text-ink-faint">titles and pictures only — nothing to ask</span>
       ) : (
         <>
           {part.done && <span className="text-xs font-medium text-confirmed">done</span>}
+          {part.topics.length > 0 && (
+            <span className="block w-full min-w-0 truncate text-xs text-ink-faint" title={part.topics.join(" · ")}>
+              {part.topics.join(" · ")}
+            </span>
+          )}
           {!part.done && part.ready && <span className="text-xs text-brand">ready</span>}
           {pictures > 0 && (
             <span className="text-xs text-ink-faint" title={`Pages ${part.picture_pages.join(", ")}`}>

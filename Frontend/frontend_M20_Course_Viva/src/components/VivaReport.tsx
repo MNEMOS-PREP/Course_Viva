@@ -7,14 +7,14 @@
  */
 
 import type { ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { EmptyState, Icon, SkeletonRows } from "@ai/core";
 
 import { openFile } from "../api";
 import { plural } from "../ui/bits";
 import { HELP_LABEL, VERDICT, VERDICT_ORDER, VerdictBadge } from "../ui/verdict";
-import { useVivaReport } from "../vivaApi";
+import { useStartViva, useVivaReport } from "../vivaApi";
 import type { LabStage, ReportItem, VivaReport as Report } from "../vivaTypes";
 import { NextPart, pagesLabel, scopeLabel } from "./NextPart";
 
@@ -51,7 +51,7 @@ function ReportView({ report }: { report: Report }) {
           {scopeLabel(v.scope, v.part)} · with {v.examiner} · {new Date(v.started_at).toLocaleDateString()}
         </p>
         <h1 className="mt-1 text-title font-semibold tracking-tight text-ink">
-          Your {v.style === "lab" ? "lab viva" : "viva"} report
+          Your {v.retry_of ? "second-go" : v.style === "lab" ? "lab viva" : "viva"} report
         </h1>
         <p className="mt-2 text-sm text-ink-soft" data-numeric>
           {plural(answered, "question")} answered
@@ -73,6 +73,7 @@ function ReportView({ report }: { report: Report }) {
               Back to the viva
             </Link>
           )}
+          {v.status === "ended" && v.missed > 0 && v.course && <SecondGo report={report} />}
           <Link to="/viva" className="inline-flex h-9 items-center rounded-lg border border-line px-3.5 text-sm font-medium text-ink hover:border-line-strong">
             All your vivas
           </Link>
@@ -152,6 +153,36 @@ function ReportView({ report }: { report: Report }) {
         )}
       </section>
     </div>
+  );
+}
+
+/** A second go at what was not right first time, straight away, while the
+ *  report is still in front of the student (NotebookLM reruns missed cards). */
+function SecondGo({ report }: { report: Report }) {
+  const v = report.viva;
+  const start = useStartViva();
+  const navigate = useNavigate();
+  return (
+    <>
+      <button
+        type="button"
+        disabled={start.isPending}
+        onClick={() =>
+          start.mutate(
+            { course_id: v.course!.id, retry_of: v.id, mode: v.mode, style: v.style },
+            { onSuccess: (state) => navigate(`/viva/${state.id}`) },
+          )
+        }
+        className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand px-3.5 text-sm font-semibold text-on-brand hover:bg-brand-hover disabled:opacity-60"
+      >
+        {start.isPending
+          ? "Getting the examiner ready…"
+          : v.missed === 1
+            ? "Try the one you missed again"
+            : `Try the ${v.missed} you missed again`}
+      </button>
+      {start.error && <p className="w-full text-xs text-contested">{start.error.message}</p>}
+    </>
   );
 }
 

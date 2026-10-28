@@ -507,3 +507,17 @@ def test_a_hint_about_what_the_slide_shows_points_at_the_page(hint):
 )
 def test_a_table_or_a_graph_can_be_the_subject(hint):
     assert not bank._POINTS_AT_PAGE.search(hint)
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "near"),
+    [
+        ("How does the TD update change the value estimate of a state?",
+         "How does the TD update change a state's value estimate?", True),
+        ("Which page does FIFO evict?", "Why does FIFO evict that page?", False),
+        ("What is the TD error after step 1 of episode 2?",
+         "What is the TD error after step 2 of episode 2?", False),
+    ],
+)  # fmt: skip
+def test_the_same_question_reworded_is_asked_once(first, second, near):
+    assert bank._near(first, second) is near

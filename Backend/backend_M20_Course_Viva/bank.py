@@ -360,6 +360,26 @@ def not_examinable(raw: Any, pages: dict[int, str]) -> dict[int, str]:
     return out
 
 
+#: Two questions sharing this much of their content words are one question.
+NEAR_REPEAT = 0.75
+
+
+def _near(a: str, b: str) -> bool:
+    # Numbers count — "...after step 1?" and "...after step 2?" are two
+    # questions — and so does what is asked: "Which page does FIFO evict?"
+    # wants a fact, "Why does FIFO evict that page?" a reason.
+    if _NUMBER.findall(fold(a)) != _NUMBER.findall(fold(b)):
+        return False
+
+    def said(text: str) -> set[str]:
+        return _content(text) | {f"?{w}" for w in words(text)[:1]}
+
+    wa, wb = said(a), said(b)
+    if len(wa) < 3 or len(wb) < 3:
+        return False
+    return len(wa & wb) / len(wa | wb) >= NEAR_REPEAT
+
+
 def family_of(label: Any) -> str:
     """The model's family label as one of ours: "comparison" is "compare",
     "procedural" is "procedure"; anything else, "explain"."""
@@ -573,6 +593,12 @@ def check(
         key = " ".join(words(text))
         if key in seen:
             dropped.append("a repeat")
+            continue
+        if any(_near(text, q.text) for q in kept):
+            # The same question reworded ("What does TD stand for?" / "What
+            # is TD short for?"): one is asked, not both (the L2Q paper's
+            # near-duplicate check, 2026-10-28 research).
+            dropped.append(f"a near repeat: {text!r}")
             continue
         if per_span.get((page_no, span[0]), 0) >= PER_SPAN:
             dropped.append("a third question on one sentence")

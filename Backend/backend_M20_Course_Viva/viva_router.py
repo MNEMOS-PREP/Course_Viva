@@ -108,6 +108,8 @@ class StartIn(BaseModel):
     mode: str = "typed"
     #: "lab" walks an experiment's steps (FR-20.19); "course" the material.
     style: str = "course"
+    #: A second go at an earlier viva's questions not right first time.
+    retry_of: str | None = None
     questions: int = Field(
         default=viva.DEFAULT_QUESTIONS, ge=viva.MIN_QUESTIONS, le=viva.MAX_QUESTIONS
     )
@@ -132,6 +134,7 @@ def start(
             mode=body.mode,
             questions=body.questions,
             style=body.style,
+            retry_of=body.retry_of,
         )
     except viva.VivaError as error:
         raise _fail(error) from error

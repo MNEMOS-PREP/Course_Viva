@@ -329,6 +329,15 @@ def _next_question(session: Session, viva: Viva, *, llm: Any = None) -> Question
     turns = _turns(session, viva.id)
     asked_ids = [t.question_id for t in turns if t.kind == "question" and t.question_id]
     asked = set(asked_ids)
+    retry = (viva.scope or {}).get("retry")
+    if retry:
+        # A second go: the questions not right first time, in the order they
+        # were asked — and none taken down since.
+        for question_id in retry:
+            question = session.get(Question, question_id)
+            if question_id not in asked and question and question.status in ("draft", "reviewed"):
+                return question
+        return None
     plan = [tuple(ref) for ref in viva.plan]
     last = session.get(Question, asked_ids[-1]) if asked_ids else None
     start = (
@@ -406,7 +415,24 @@ def _next_question(session: Session, viva: Viva, *, llm: Any = None) -> Question
                     break
         return min(window, key=lambda pq: rank(pq[1], pq[0]))[1] if window else None
 
-    if (chosen := pick()) is not None:
+    if (chosen := pick()) is not None and not (
+        not lab and last is not None and _right_first_time(turns, len(asked_ids))
+    ):
+        return chosen
+
+    # A short answer right first time is followed deeper, the way an examiner
+    # does — "Right. And why…" — when its page has a long question left
+    # (Sherpa probes a strong answer deeper; 2026-10-28 research).
+    if not lab and last is not None and _right_first_time(turns, len(asked_ids)):
+        deeper = [
+            q
+            for q in ready((last.material_id, last.page))
+            if last.answer_length == "short" and q.answer_length == "long"
+            and bank.current(session.get(bank.BankPage, (last.material_id, last.page)))
+        ]  # fmt: skip
+        if deeper:
+            return min(deeper, key=rank)
+    if chosen is not None:
         return chosen
     # Then bank on demand — after committing, so no write is held while the
     # model is asked (SQLite has one writer). A page is banked with its whole
@@ -525,6 +551,7 @@ def parts(session: Session, material: Material, student: str | None) -> list[dic
                 "part": len(out) + 1,
                 "first": first,
                 "last": last,
+                "topics": _topics(session, material.id, text),
                 "pages_with_text": len(text),
                 **_not_asked(session, material.id, first, last),
                 "questions": questions,
@@ -545,6 +572,31 @@ def span_of(session: Session, viva: Viva) -> dict[str, Any] | None:
     if material is None:
         return None
     return {"material_id": material_id, "first": first, "last": min(last, material.pages)}
+
+
+#: Topics shown for a part, at most, and how long one may be.
+TOPICS, TOPIC_CHARS = 4, 48
+
+
+def _topics(session: Session, material_id: str, pages: list[int]) -> list[str]:
+    """What a part is about, from its pages' own first lines — a slide's
+    title, a section heading — so a student picks ten pages by what they
+    teach, not by their numbers."""
+    if not pages:
+        return []
+    rows = session.exec(
+        select(MaterialPage.page, func.substr(MaterialPage.text, 1, 120)).where(
+            MaterialPage.material_id == material_id, MaterialPage.page.in_(pages)
+        )
+    ).all()
+    seen: dict[str, str] = {}
+    for _page, head in sorted(rows):
+        line = next((ln.strip(" •*-–:") for ln in (head or "").splitlines() if ln.strip()), "")
+        if 3 <= len(line) <= TOPIC_CHARS and any(ch.isalpha() for ch in line):
+            seen.setdefault(line.casefold(), line)
+        if len(seen) >= TOPICS:
+            break
+    return list(seen.values())
 
 
 def next_part(session: Session, viva: Viva) -> dict[str, Any] | None:
@@ -581,10 +633,14 @@ _WRONG = ["Not quite. ", "That's not right. ", "No, not quite. "]
 _BLANK = ["Take a moment. ", "That's alright. ", "Think about it for a second. "]
 
 
+#: The lead of a deeper question on what was just answered: "Right. And why…".
+AND = "And "
+
+
 def _connect(lead: str, question: str) -> str:
     """ "Now, " runs into the question, so its capital goes ("Now, why…") —
     unless the word is a name or an acronym ("Now, LRU…", "Now, Belady's…")."""
-    if lead.endswith(", ") and question[:1].isupper():
+    if (lead.endswith(", ") or lead == AND) and question[:1].isupper():
         first = question.split(" ", 1)[0]
         if not (first[1:2].isupper() or "'" in first or "’" in first):
             question = question[0].lower() + question[1:]
@@ -647,6 +703,7 @@ def start(
     mode: str = "typed",
     questions: int = DEFAULT_QUESTIONS,
     style: str = "course",
+    retry_of: str | None = None,
 ) -> Viva:
     if viewer.subject is None:
         raise VivaError(401, "Sign in to take a viva.")
@@ -654,6 +711,17 @@ def start(
         raise VivaError(422, "A viva is typed or spoken.")
     if style not in ("course", "lab"):
         raise VivaError(422, "A viva is on a course or a lab.")
+    retry: list[str] = []
+    if retry_of:
+        earlier = session.get(Viva, retry_of)
+        if earlier is None or earlier.student != viewer.subject:
+            raise VivaError(404, "No such viva.")
+        retry = missed_in(session, earlier)
+        if not retry:
+            raise VivaError(422, "Nothing to go over again: every answer was right first time.")
+        course_id = earlier.course_id
+        material_ids = earlier.scope.get("material_ids") or material_ids
+        unit, pages, style = None, None, (earlier.scope or {}).get("style") or style
     scope = resolve_scope(
         session, viewer, course_id, material_ids=material_ids, unit=unit, pages=pages
     )
@@ -676,6 +744,8 @@ def start(
     for old in live:
         end(session, old, reason="replaced")
     target = min(MAX_QUESTIONS, max(MIN_QUESTIONS, int(questions or DEFAULT_QUESTIONS)))
+    if retry:
+        target = min(MAX_QUESTIONS, len(retry))
     examiner = next_examiner(session, viewer.subject)
     viva = Viva(student=viewer.subject, course_id=course_id, mode=mode, target=target)
     viva.examiner = examiner["id"]
@@ -690,6 +760,8 @@ def start(
         "excluded": scope.excluded,
         "style": style,
     }
+    if retry:
+        viva.scope = {**viva.scope, "retry": retry[:target], "retry_of": retry_of}
     viva.plan = _visit_order(scope.pages, target, viva.id)
     session.add(viva)
     session.flush()
@@ -697,6 +769,23 @@ def start(
     kind = "lab viva" if style == "lab" else "viva"
     span = span_of(session, viva)
     on = f"{scope.label}, pages {span['first']} to {span['last']}" if span else scope.label
+    if retry:
+        # A second go goes straight to the questions: the warm-up was last time.
+        count = "the question" if target == 1 else f"the {target} questions"
+        _say(
+            session,
+            viva,
+            "examiner",
+            "greeting",
+            f"{OPENING.format(name=examiner['name'])} This is a second go at {count} you did not "
+            f"get right on {scope.label}. {NOT_KNOWING}",
+            0,
+        )
+        session.add(viva)
+        _ask_next(session, viva)
+        session.commit()
+        session.refresh(viva)
+        return viva
     _say(
         session,
         viva,
@@ -734,7 +823,20 @@ def _ask_next(session: Session, viva: Viva, *, llm: Any = None) -> None:
         _close(session, viva, "exhausted")
         return
     item = done + 1
-    text = question.text if item == 1 else _connect(_pick(viva, _CONNECT, item), question.text)
+    turns = _turns(session, viva.id)
+    previous = next(
+        (session.get(Question, t.question_id) for t in reversed(turns) if t.kind == "question"),
+        None,
+    )
+    deeper = (
+        previous is not None
+        and (previous.material_id, previous.page) == (question.material_id, question.page)
+        and previous.answer_length == "short"
+        and question.answer_length == "long"
+        and _right_first_time(turns, done)
+    )
+    lead = AND if deeper else _pick(viva, _CONNECT, item)
+    text = question.text if item == 1 else _connect(lead, question.text)
     _say(session, viva, "examiner", "question", text, item, question_id=question.id)
     viva.open = {
         "item": item,
@@ -744,6 +846,26 @@ def _ask_next(session: Session, viva: Viva, *, llm: Any = None) -> None:
         "covered": [],
         "probed": [],
     }
+
+
+def _right_first_time(turns: list[VivaTurn], item: int) -> bool:
+    """Whether question `item` was answered right at the first try."""
+    answers = [t for t in turns if t.role == "student" and t.item == item and t.verdict]
+    return bool(answers) and answers[0].verdict.get("status") == "correct"
+
+
+def missed_in(session: Session, viva: Viva) -> list[str]:
+    """A viva's questions not right first time — what a second go asks."""
+    turns = _turns(session, viva.id)
+    out: list[str] = []
+    for q_turn in turns:
+        if q_turn.kind != "question" or not q_turn.question_id:
+            continue
+        answers = [t for t in turns if t.role == "student" and t.item == q_turn.item]
+        status, help_taken = _item_status(answers)
+        if status != "correct" or help_taken:
+            out.append(q_turn.question_id)
+    return list(dict.fromkeys(out))
 
 
 def _close(session: Session, viva: Viva, reason: str) -> None:
@@ -1114,6 +1236,9 @@ def report(session: Session, viva: Viva) -> dict[str, Any]:
             "examiner": _examiner(viva)["name"],
             "mode": viva.mode,
             "style": style_of(viva),
+            "retry_of": (viva.scope or {}).get("retry_of"),
+            # What a second go would ask: the questions not right first time.
+            "missed": len(missed_in(session, viva)) if viva.status == "ended" else 0,
             "status": viva.status,
             "end_reason": viva.end_reason,
             "target": viva.target,
@@ -1194,6 +1319,7 @@ def history(session: Session, student: str, limit: int = 30) -> list[dict[str, A
                 "status": viva.status,
                 "mode": viva.mode,
                 "style": style_of(viva),
+                "retry": bool((viva.scope or {}).get("retry_of")),
                 "started_at": viva.started_at.isoformat(),
                 "target": viva.target,
                 "correct": sum(1 for s in finals.values() if s == "correct"),
