@@ -39,7 +39,7 @@ from typing import Any
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from . import bank, marking, speaking
+from . import bank, marking, reading, speaking
 from .library import Viewer, _unit_order, visible
 from .models import Course, Material, MaterialPage, Question, Viva, VivaTurn
 
@@ -155,6 +155,14 @@ def resolve_scope(
     for material in rows:
         if material.text_status == "ok":
             usable.append(material)
+        elif material.text_status == "no_text" and reading.reading(material.id):
+            excluded.append(
+                {
+                    "material_id": material.id,
+                    "title": material.title,
+                    "why": "a scan or an image: its pages are being read now, a few a minute",
+                }
+            )
         else:
             why = EXCLUDED_WHY.get(material.text_status, "it has no text")
             excluded.append({"material_id": material.id, "title": material.title, "why": why})
@@ -260,6 +268,11 @@ def said_first(examiner: dict[str, str]) -> list[str]:
     return [OPENING.format(name=examiner["name"]), NOT_KNOWING, WARMUP_LEAD, *WARMUP_ACKS]
 
 
+def read_from_picture(session: Session, material_id: str, page: int) -> bool:
+    row = session.get(MaterialPage, (material_id, page))
+    return bool(row and row.read_by)
+
+
 def _cite(session: Session, question: Question) -> dict[str, Any]:
     material = session.get(Material, question.material_id)
     return {
@@ -270,6 +283,9 @@ def _cite(session: Session, question: Question) -> dict[str, Any]:
         "quote": question.quote,
         "span_start": question.span_start,
         "span_end": question.span_end,
+        # The page was a picture, read by a model (reading.py): the quote is
+        # what it read, and the student is told so.
+        "read_from_picture": read_from_picture(session, question.material_id, question.page),
     }
 
 

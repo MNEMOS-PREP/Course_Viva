@@ -165,6 +165,14 @@ function QuestionCard({
           {DIFFICULTY[q.difficulty] ? ` · ${DIFFICULTY[q.difficulty]}` : ""} ·{" "}
           {q.written_by === "rules" ? "written by rule" : "written by a model"}
         </span>
+        {q.read_from_picture && (
+          <Pill
+            tone="reported"
+            title="This page is a picture: a model read its words, and the question and its quote come from what it read. Check them against the slide."
+          >
+            read from a picture
+          </Pill>
+        )}
         {!q.current && (
           <Pill title="Written under an older prompt: this page is given new questions when a viva next reaches it.">
             older version

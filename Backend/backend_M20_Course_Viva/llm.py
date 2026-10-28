@@ -1,7 +1,8 @@
-"""The model client: two jobs, one structured call each (spec §6.4, §11).
+"""The model client: three jobs (spec §6.4, §11).
 
-    bank     a page of material -> 3-6 viva questions, each citing its span
+    bank     ten pages of material -> viva questions, each citing its span
     marking  one answer -> which of a question's points it reached
+    read     a picture of a page -> its words (reading.py), once per page
 
 Nothing else in a viva calls a model. The examiner's lines are written by
 rule, follow-ups come from the bank, and a page is banked once (Trap 8: the
@@ -41,6 +42,7 @@ log = logging.getLogger("uvicorn.error")
 
 JOB_BANK = "viva_bank"
 JOB_MARKING = "viva_marking"
+JOB_READ = "viva_read_page"
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,16 @@ JOBS: dict[str, JobSpec] = {
         timeout_s=float(os.getenv("M20_MARKING_TIMEOUT", "20")),
         temperature=0.0,
     ),
+    # A picture slide or a scanned page, read in the background once for
+    # everyone: the vision tier (ai_core v0.42.0), word for word.
+    JOB_READ: JobSpec(
+        tier="vision",
+        env="M20_MODEL_VISION",
+        max_tokens=1500,
+        timeout_s=float(os.getenv("M20_READ_TIMEOUT", "60")),
+        temperature=0.0,
+        reasoning_effort=None,
+    ),
 }
 
 #: Request fields that are extensions to the base dialect and may be refused.
@@ -100,6 +112,8 @@ class LLM(Protocol):
         self, *, job: str, system: str, user: str, schema: dict[str, Any]
     ) -> LLMResult: ...
 
+    def read_image(self, *, job: str, prompt: str, image_b64: str) -> LLMResult: ...
+
 
 @dataclass
 class NullLLM:
@@ -112,6 +126,9 @@ class NullLLM:
         return False
 
     def structured(self, *, job: str, system: str, user: str, schema: dict[str, Any]) -> LLMResult:
+        return LLMResult(ok=False, reason=self.reason, job=job)
+
+    def read_image(self, *, job: str, prompt: str, image_b64: str) -> LLMResult:
         return LLMResult(ok=False, reason=self.reason, job=job)
 
 
@@ -198,6 +215,71 @@ class OpenAICompatLLM:
                 return None, f"{type(exc).__name__}: {exc}"
         return None, "gave up after retries"
 
+    def can(self, job: str) -> bool:
+        """Whether this job has a usable route (the vision tier may not)."""
+        return bool(route_for(JOBS[job]))
+
+    def read_image(self, *, job: str, prompt: str, image_b64: str) -> LLMResult:
+        """A picture (base64 JPEG) and an instruction; the answer as text, in
+        `data["text"]`."""
+        spec = JOBS[job]
+        route = route_for(spec)
+        result = LLMResult(job=job, model=route.model)
+        if not route:
+            result.reason = route.unusable or "no route"
+            return result
+        body: dict[str, Any] = {
+            "model": route.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                        },
+                    ],
+                }
+            ],
+            "temperature": spec.temperature,
+            "max_tokens": spec.max_tokens,
+        }
+        content = self._complete(spec, route, body, result)
+        if content is not None:
+            text = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
+            result.ok, result.data = True, {"text": text}
+        return result
+
+    def _complete(
+        self, spec: JobSpec, route: Route, body: dict[str, Any], result: LLMResult
+    ) -> str | None:
+        """Send `body`; the answer's text, or None with `result.reason` set."""
+        started = time.perf_counter()
+        future = _CALLS.submit(self._post, route, body, spec.timeout_s)
+        try:
+            payload, error = future.result(timeout=spec.timeout_s + 15)
+        except FutureTimeout:
+            payload, error = None, f"no answer within {spec.timeout_s:g}s"
+        result.latency_ms = int((time.perf_counter() - started) * 1000)
+        if payload is None:
+            result.reason = error or "no response"
+            return None
+        usage = payload.get("usage") or {}
+        result.tokens_in, result.tokens_out = (
+            usage.get("prompt_tokens"),
+            usage.get("completion_tokens"),
+        )
+        try:
+            content = payload["choices"][0]["message"]["content"] or ""
+        except (KeyError, IndexError, TypeError):
+            result.reason = "response had no message content"
+            return None
+        if not content.strip():
+            result.reason = f"empty content ({result.tokens_out} tokens, likely reasoning)"
+            return None
+        return content
+
     def structured(self, *, job: str, system: str, user: str, schema: dict[str, Any]) -> LLMResult:
         spec = JOBS[job]
         route = route_for(spec)
@@ -224,28 +306,8 @@ class OpenAICompatLLM:
             }
         for name in self.refused.get(route.model, ()):
             body.pop(name, None)
-        started = time.perf_counter()
-        future = _CALLS.submit(self._post, route, body, spec.timeout_s)
-        try:
-            payload, error = future.result(timeout=spec.timeout_s + 15)
-        except FutureTimeout:
-            payload, error = None, f"no answer within {spec.timeout_s:g}s"
-        result.latency_ms = int((time.perf_counter() - started) * 1000)
-        if payload is None:
-            result.reason = error or "no response"
-            return result
-        usage = payload.get("usage") or {}
-        result.tokens_in, result.tokens_out = (
-            usage.get("prompt_tokens"),
-            usage.get("completion_tokens"),
-        )
-        try:
-            content = payload["choices"][0]["message"]["content"] or ""
-        except (KeyError, IndexError, TypeError):
-            result.reason = "response had no message content"
-            return result
-        if not content.strip():
-            result.reason = f"empty content ({result.tokens_out} tokens, likely reasoning)"
+        content = self._complete(spec, route, body, result)
+        if content is None:
             return result
         try:
             parsed = json_object(content)

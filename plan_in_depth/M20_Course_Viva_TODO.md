@@ -19,6 +19,42 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 
 ---
 
+### 2026-10-29 — pictures read, and "Upload a PDF" on the viva panel
+
+The user: "add OCR or a vision model, whichever does well", and "the viva
+should have an upload PDF button".
+
+- ✅ **A vision model reads the pictures (`reading.py`).** Compared on the 13
+  image-only slides of the RL deck: Groq's `qwen/qwen3.8-27b` read every word,
+  kept the equations (γ, δ, `V(S_t) <- ...`) and tables, and said what each
+  diagram shows, ~1 s a slide; RapidOCR on the CPU ran words together
+  ("MonteCarlolearnsfrom"), read δ as "8", dropped γ and interleaved columns,
+  ~4 s. NVIDIA's vision models were retired (410) or hung. So: a `vision` tier
+  in Platform_Core v0.42.0 (M20 pins it), read in the background — on upload,
+  when a course's viva panel opens, and the pages a viva is about to ask from
+  first — once for everyone, paced (~3 a minute on the free tier, a 429 waited
+  out), stored with `read_by`; a page read after its part was banked is banked
+  again. The citation, the report and the review screen say "read from the
+  slide's picture". A scanned lab manual becomes examinable as its pages are
+  read (EC-20.5). Live on the deck: 20 pages read in 408 s; pages 31–40 now
+  ask from the worked example ("What new value is assigned to V(B) after the
+  update?").
+- ✅ **"Upload a PDF to be examined on"** on the viva panel (and when the
+  course has nothing yet): the file goes into the course as "only you" and is
+  chosen — its first ten pages if it is long; a scan says its pages are being
+  read. Walked headless: uploaded, listed, selected.
+- **Found and fixed on the deck, each with a test:** the university's logo
+  and footer bar (on 54 of 59 slides) were read into the text and made a title
+  slide look like a picture — an image on a quarter of a document's pages is
+  its template: not counted, and a header or footer band of it is cut away
+  before the page is sent; a sentence ended at a decimal point (a quote cut to
+  "T[0] | A V=0."); a quote kept from a drifting one was cut mid-expression
+  ("…from V(S) to Q(S") — it now ends at its sentence or line; an answer point
+  that is a number or an equation ("α is 0.1", "δ = [R + γV(A)] − V(B)") was
+  always dropped — numbers count with words, and symbols are matched as a
+  quote is. Bank prompt bank-12.
+- **Tests:** 199 backend (178 → 199), lint clean; typecheck and build clean.
+
 ### 2026-10-28 (evening) — long documents, lab vivas, the review screen, the shell
 
 The user: "if a user uploads a long PDF, how do you chunk it so that no loss
@@ -241,34 +277,9 @@ silently dropped.
    but unread). Each is one more PDF through the same reader.
 3. **Fill the library.** The placement cell fills `Course_Viva_Material` and
    imports it, then times one semester's folder (AC-20.7). The viva needs
-   material with text: today a test lab (23CSE214, Lab 6) and the user's
-   59-page RL deck (25AID301, private to the dev student) are what there is.
-4. **Read the pictures (the user, 2026-10-28: "add OCR or a vision model,
-   whichever does well").** 13 of the RL deck's 59 slides are images —
-   diagrams, the TD update drawn as a figure, the numerical example (pages 5,
-   6, 19, 22, 30–36, 57, 58) — and the viva can only name them. A scanned lab
-   manual (EC-20.5) is the same problem for every page.
-   - *Found so far:* our Groq key lists no vision model (no Llama 4
-     Scout/Maverick; `qwen/qwen3.8-27b` is there, untested on images), and
-     Tesseract is not installed on the dev machine.
-   - *Plan:* render each picture page (PyMuPDF, ~110 dpi) and try both on the
-     13 slides — RapidOCR (CPU, pip, no service) and a vision model (another
-     provider's, or Groq's if one is enabled) asked to transcribe exactly what
-     is written, equations in plain letters, and say in at most three
-     sentences what a diagram shows, marked "Figure:", adding nothing not
-     visible. Keep whichever reads better; say which in this file.
-   - *Where:* a part's picture pages are read just before the part is banked
-     (in the background, while the student answers the part before), once,
-     for everyone: the text goes into the page with how it was read
-     (`read_by`), the bank and search use it, and the report and the review
-     screen say "read from the slide's picture". The quote check still holds
-     — against what was read.
-5. **"Upload a PDF" on the viva panel (the user, 2026-10-28).** Today a
-   student adds material in the course page's "Add material" box and then
-   picks it in "Practise a viva". The panel gets its own button: choose a PDF,
-   it is added to the course as "only you" (no permission needed), and the
-   panel selects it — its first ten pages, if it is long — ready to start.
-6. **From the product research (2026-10-28):** after a right short answer,
+   material: today a test lab (23CSE214, Lab 6) and the user's 59-page RL
+   deck (25AID301, private to the dev student, its pictures read).
+4. **From the product research (2026-10-28):** after a right short answer,
    the "why" question on the same passage (Sherpa probes a strong answer
    deeper); "practise what you missed" — a viva on the questions got wrong
    (NotebookLM reruns missed cards); a near-duplicate check in the bank (the
@@ -276,7 +287,7 @@ silently dropped.
    slide-deck question paper); the topics of each part on the start panel;
    hedges ("I think", "maybe") among the speaking measures; the examiner
    cutting in when a one-line question gets a long ramble.
-7. **Results to M04 behind consent (FR-20.20).**
+5. **Results to M04 behind consent (FR-20.20).**
 
 ## 1. The plan (project manager's view)
 
@@ -344,7 +355,7 @@ Spec §9.
   linked (AID (ME)) · EC-20.3 combined "&" links dropped · EC-20.7 elective baskets listed by
   slot · EC-20.8 no permission → held · EC-20.9 takedown everywhere — search, views and now the
   question bank —, and the file cannot quietly return · EC-20.10 the same file twice is one
-  material · EC-20.5 a scan is stored as `no_text`, and a viva leaves it out and says why
+  material · EC-20.5 a scan is stored as `no_text`, and its pages are read by the vision tier, a few a minute, until it can be examined on
 - 🟡 EC-20.4 one material, but tagged with the first campus only · EC-20.6 the year can be
   switched; older years are not read yet
 
@@ -352,6 +363,6 @@ Spec §9.
 
 1. Scope beyond B.Tech + AI (M.Tech, B.Sc., …)?
 2. Campuses beyond the five (Nagercoil, Haridwar, Faridabad also run B.Tech)?
-3. ~~OCR for scanned lab manuals and picture slides?~~ **Decided 2026-10-28: yes — OCR or a vision model, whichever reads better** (Next 4).
+3. ~~OCR for scanned lab manuals and picture slides?~~ **Decided 2026-10-28; done 2026-10-29: a vision model reads them** (it read far better than OCR).
 4. Who may upload — students, or faculty and class representatives only?
 5. Pre-2019 curricula (two-PDF layout): parse, or link only?

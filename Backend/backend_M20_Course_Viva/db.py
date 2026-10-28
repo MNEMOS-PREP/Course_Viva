@@ -55,6 +55,8 @@ def init(target=None) -> None:
 ADDED_COLUMNS = (
     # 2026-10-28: a viva asks short-answer and long-answer questions.
     ("question", "answer_length", "VARCHAR NOT NULL DEFAULT 'long'"),
+    # 2026-10-28: a page that is only a picture is read by a vision model.
+    ("materialpage", "read_by", "VARCHAR"),
 )
 
 

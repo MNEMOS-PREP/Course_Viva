@@ -43,7 +43,11 @@ def test_a_quote_that_drifts_at_its_end_keeps_the_part_that_is_the_page():
     kept is the page's own text — never the model's words."""
     quote = "A quick check on Google Maps shows him an estimated 5 hour drive to the city"
     start, end = bank.locate(quote, JOURNEY)
-    assert JOURNEY[start:end] == "A quick check on Google Maps shows him an \nestimated 5 hour"
+    # Carried to the end of its sentence, not cut where the model's words left off.
+    assert (
+        JOURNEY[start:end]
+        == "A quick check on Google Maps shows him an \nestimated 5 hour journey."
+    )
 
 
 def test_a_quote_mostly_not_on_the_page_is_still_refused():
@@ -210,3 +214,27 @@ def test_a_question_that_still_points_at_the_page_is_not_asked():
     """Live: "What term does the slide use for the learning method…"."""
     assert _asked("What journey time does the slide give for Rajesh?") == []
     assert _asked("What journey time does Google Maps estimate for Rajesh?") != []
+
+
+def test_a_decimal_point_does_not_end_a_sentence():
+    """Live: "What can you tell me about EPISODE 2?" quoted "T[0] | A V=0."."""
+    page = "EPISODE 2\nT[0] | A V=0.45 | B V=0.5 | C V=0.5 | T[1]\nStep 1: B to C, reward R=0."
+    about = bank._about(page, "m1", 1)
+    assert about and "V=0.45 | B V=0.5" in about[0].quote
+
+
+@pytest.mark.parametrize(
+    "point",
+    ["α is 0.1", "δ = [R + γV(A)] − V(B)", "δ evaluates to -0.5", "V(A) becomes 0.45"],
+)
+def test_an_answer_point_in_numbers_and_symbols_is_checked_as_such(point):
+    """A worked example's answers are numbers: every one was dropped."""
+    page = (
+        "Step 1: B -> A (Reward R=0)\nTD Error: δ = [R + γV(A)] − V(B)\n"
+        "δ = [0 + 1 · 0] − 0.5 = −0.5\nUpdate V(A): V(A) ← 0.5 + 0.1 · (−0.5) = 0.45 with α = 0.1"
+    )
+    assert bank.grounded(point, page)
+
+
+def test_numbers_not_on_the_page_do_not_ground_a_point():
+    assert not bank.grounded("δ evaluates to 0.75", "TD Error: δ = 0.5 for this step")

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, select
 
-from . import config, importer, library, materials, storage
+from . import config, importer, library, materials, reading, storage
 from .db import get_session
 from .library import Viewer
 from .models import Material, MaterialPage
@@ -107,6 +107,9 @@ async def add_material(
             raise HTTPException(status_code=422, detail="Add a file or a link.")
     except materials.MaterialError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Its picture pages are read in the background while the student looks
+    # at it: by the time they start a viva on it, the first are read.
+    reading.start(added.material.id)
     return {"created": added.created, "material": library._material_out(added.material)}
 
 

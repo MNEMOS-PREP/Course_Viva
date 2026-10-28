@@ -14,10 +14,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from . import bank, db, viva
+from . import bank, db, reading, viva
 from .db import get_session
 from .library import Viewer, visible
-from .models import Material, Question, Viva
+from .models import Material, MaterialPage, Question, Viva
 from .router import curator, signed_in, viewer_of
 
 router = APIRouter(prefix="/v1/vivas", tags=["viva"])
@@ -51,6 +51,9 @@ def scope(course_id: str, db_session: SessionDep, request: Request) -> dict:
         found = viva.resolve_scope(db_session, viewer, course_id)
     except viva.VivaError as error:
         raise _fail(error) from error
+    # Pictures (and scans) are read while the student chooses.
+    for material_id in [m.id for m in found.materials] + [e["material_id"] for e in found.excluded]:
+        reading.start(material_id)
     pages_by_material: dict[str, int] = {}
     for material_id, _page in found.pages:
         pages_by_material[material_id] = pages_by_material.get(material_id, 0) + 1
@@ -81,6 +84,8 @@ def scope(course_id: str, db_session: SessionDep, request: Request) -> dict:
                 "pages": m.pages,
                 "usable_pages": pages_by_material.get(m.id, 0),
                 "questions": banked.get(m.id, 0),
+                # Its picture pages are being read now (reading.py).
+                "reading": reading.reading(m.id),
                 # A long document is taken ten pages at a time (bank.PART_PAGES).
                 "parts": viva.parts(db_session, m, viewer.subject)
                 if m.pages > bank.PART_PAGES
@@ -131,6 +136,10 @@ def start(
     except viva.VivaError as error:
         raise _fail(error) from error
     background.add_task(_prefetch, row.id)
+    # The pictures this viva will ask from are read first.
+    for material_id in row.scope.get("material_ids", []):
+        span = (row.scope.get("pages") or {}).get(material_id)
+        reading.start(material_id, first=list(range(span[0], span[1] + 1)) if span else None)
     return viva.state(db_session, row)
 
 
@@ -199,7 +208,8 @@ def report(viva_id: str, db_session: SessionDep, request: Request) -> dict:
 # ── The bank, reviewable (FR-20.14) ─────────────────────────────────────────
 
 
-def _question_out(q: Question) -> dict:
+def _question_out(q: Question, pictures: set[int]) -> dict:
+    """`pictures`: the pages of its material that were read from a picture."""
     return {
         "id": q.id,
         "material_id": q.material_id,
@@ -213,10 +223,21 @@ def _question_out(q: Question) -> dict:
         "difficulty": q.difficulty,
         "status": q.status,
         "written_by": q.generated_by,
+        "read_from_picture": q.page in pictures,
         # Written under an older bank prompt: the page is banked again when a
         # viva next reaches it, and this one is retired then.
         "current": q.prompt_version == bank.PROMPT_VERSION,
     }
+
+
+def _pictures(db_session: Session, material_id: str) -> set[int]:
+    return set(
+        db_session.exec(
+            select(MaterialPage.page).where(
+                MaterialPage.material_id == material_id, MaterialPage.read_by.is_not(None)
+            )
+        ).all()
+    )
 
 
 @router.get("/bank/{material_id}")
@@ -254,7 +275,7 @@ def bank_of(
             for p in sorted(pages, key=lambda p: p.page)
             if bank.current(p) and p.questions == 0
         ],
-        "questions": [_question_out(q) for q in rows],
+        "questions": [_question_out(q, _pictures(db_session, material_id)) for q in rows],
     }
 
 
@@ -275,4 +296,4 @@ def review(question_id: str, body: ReviewIn, db_session: SessionDep, request: Re
     db_session.add(question)
     db_session.commit()
     db_session.refresh(question)
-    return _question_out(question)
+    return _question_out(question, _pictures(db_session, question.material_id))

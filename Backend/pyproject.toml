@@ -16,8 +16,12 @@ dependencies = [
     "pypdf>=5.0",
     "python-docx>=1.1",
     "python-pptx>=1.0",
+    # Pictures rendered to be read (reading.py), and the catalogue sync.
+    # Pinned: 2.0 reads the curriculum tables differently (no rows for CSE
+    # 2023, titles without spaces); 1.28.2 is what M04 parses them with.
+    "pymupdf==1.28.2",
     # Shared platform foundation, PINNED BY TAG like every module.
-    "ai-core @ git+https://github.com/MNEMOS-PREP/Platform_Core@v0.38.0#subdirectory=python",
+    "ai-core @ git+https://github.com/MNEMOS-PREP/Platform_Core@v0.42.0#subdirectory=python",
 ]
 
 [project.optional-dependencies]
@@ -25,9 +29,6 @@ dependencies = [
 # university publishes, never a request path, so the API does not need these.
 sync = [
     "beautifulsoup4>=4.12",
-    # Pinned: 2.0 reads these tables differently (no rows for CSE 2023, titles
-    # without spaces); 1.28.2 is what M04 parses the same PDFs with.
-    "pymupdf==1.28.2",
 ]
 dev = [
     "pytest>=8",

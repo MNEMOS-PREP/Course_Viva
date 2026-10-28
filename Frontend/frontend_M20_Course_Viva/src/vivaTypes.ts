@@ -87,6 +87,8 @@ export interface VivaScope {
     questions: number;
     /** Ten pages at a time, for a document longer than ten; else empty. */
     parts: VivaPart[];
+    /** Its picture pages are being read now, a few a minute (reading.py). */
+    reading: boolean;
   }[];
   units: string[];
   excluded: { material_id: string; title: string; why: string }[];
@@ -101,6 +103,8 @@ export interface Cite {
   quote: string;
   span_start: number;
   span_end: number;
+  /** The page was a picture, read by a model: the quote is what it read. */
+  read_from_picture: boolean;
 }
 
 export type TurnKind =
@@ -288,6 +292,8 @@ export interface BankQuestion {
   status: "draft" | "reviewed" | "retired";
   /** The model's id, or "rules". */
   written_by: string;
+  /** Its page was a picture, read by a model: worth checking against the slide. */
+  read_from_picture: boolean;
   /** Written under the bank's current prompt; an older one is rewritten when
    *  a viva next reaches its page. */
   current: boolean;

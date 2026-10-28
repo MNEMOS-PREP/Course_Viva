@@ -67,7 +67,7 @@ from .models import BankPage, Material, MaterialPage, Question
 
 log = logging.getLogger("uvicorn.error")
 
-PROMPT_VERSION = "bank-11"
+PROMPT_VERSION = "bank-12"
 RULES = "rules"
 #: A page shorter than this is a title ("Model Free learning", 19 characters).
 #: A slide's whole idea fits in far less than a page of notes, so the floor is
@@ -298,12 +298,38 @@ def locate(quote: str, page: str) -> tuple[int, int] | None:
     if len(tokens) < MIN_QUOTE_WORDS:
         return None
     hit = find(tokens)
+    if hit is not None:
+        return hit[0], hit[1]
     least = max(MIN_QUOTE_WORDS, math.ceil(len(tokens) * QUOTE_KEPT))
     for n in range(len(tokens) - 1, least - 1, -1):
-        if hit is not None:
-            break
-        hit = find(tokens[:n]) or find(tokens[-n:])
-    return (hit[0], hit[1]) if hit else None
+        head = find(tokens[:n])
+        if head is not None:
+            # Kept to the end of its sentence or line, not cut mid-expression
+            # (live, 2026-10-28: "...from V(S) to Q(S").
+            return head[0], _clause_end(page, head[1])
+        tail = find(tokens[-n:])
+        if tail is not None:
+            return _clause_start(page, tail[0]), tail[1]
+    return None
+
+
+#: How far a kept quote may be carried to the end of its sentence.
+CLAUSE_REACH = 160
+
+
+def _clause_end(page: str, end: int) -> int:
+    stop = _CLAUSE_STOP.search(page, end, min(len(page), end + CLAUSE_REACH))
+    return stop.end() if stop else end
+
+
+def _clause_start(page: str, start: int) -> int:
+    window = page[max(0, start - CLAUSE_REACH) : start]
+    stops = list(_CLAUSE_STOP.finditer(window))
+    return start - len(window) + stops[-1].end() if stops else start
+
+
+#: Where a sentence or a line ends — not at a decimal point.
+_CLAUSE_STOP = re.compile(r"[!?\n]|\.(?!\d)")
 
 
 #: What a page that is not course content is, in words for the report and the
@@ -440,15 +466,28 @@ def _content(text: str) -> set[str]:
 _EXPANSION = re.compile(r"\bstands?\s+for\b|\bfull\s+form\b|\babbreviat|\bacronym\b", re.IGNORECASE)
 
 
+#: A number as a page writes it: "0.45", "1988", "30".
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
 def grounded(point: str, page_text: str, *, exact: bool = False) -> bool:
     """Most of a point's content words are on the page — all of them when
     `exact`. "LRU stands for Least Recently Used" asked of a page that never
     expands it is the model's knowledge, not the course's (Trap 4); half its
     words ("LRU", "recently", "used") are on the page all the same, which is
-    why a name has to be there whole (live, 2026-10-28)."""
+    why a name has to be there whole (live, 2026-10-28). A point's numbers
+    count with its words ("α is 0.1", "V(C) rises to 0.55"): a worked
+    example's answers are numbers, and words under three letters were all
+    the check looked at, so every one was dropped (live, 2026-10-28)."""
     need = _content(point)
-    share = len(need & _content(page_text)) / len(need) if need else 0.0
-    return bool(need) and share >= (1.0 if exact else 0.5)
+    numbers = set(_NUMBER.findall(fold(point)))
+    if not need and not numbers:
+        # All symbols — "δ = [R + γV(A)] − V(B)": its letters and digits, in
+        # order, on the page (how `locate` reads a quote).
+        flat = _squash(point)[0]
+        return len(flat) >= 3 and flat in _squash(page_text)[0]
+    found = len(need & _content(page_text)) + len(numbers & set(_NUMBER.findall(fold(page_text))))
+    return found / (len(need) + len(numbers)) >= (1.0 if exact else 0.5)
 
 
 def _as_question(text: str) -> str:
@@ -689,7 +728,9 @@ def by_rule(page_text: str, material_id: str, page: int) -> list[Question]:
     return out
 
 
-_SENTENCE = re.compile(r"[^.!?\n]*\w[^.!?\n]*[.!?]?")
+#: A sentence, or a line: a full stop between digits ("V=0.45") is a decimal
+#: point, not an end (live, 2026-10-28: a quote cut to "T[0] | A V=0.").
+_SENTENCE = re.compile(r"(?:[^.!?\n]|\.(?=\d))*\w(?:[^.!?\n]|\.(?=\d))*[.!?]?")
 
 
 def _about(page_text: str, material_id: str, page: int) -> list[Question]:

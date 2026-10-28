@@ -121,6 +121,9 @@ class MaterialPage(SQLModel, table=True):
     material_id: str = Field(foreign_key="material.id", primary_key=True)
     page: int = Field(primary_key=True)  # 1-based
     text: str
+    #: None: the file's own text. "vision:<model>": a picture of the page,
+    #: read by a model (reading.py) — a slide that is a screenshot, a scan.
+    read_by: str | None = None
 
 
 # ── Phase 2: the viva (spec §5, §6.4) ───────────────────────────────────────

@@ -344,6 +344,9 @@ function ItemCard({ item }: { item: ReportItem }) {
         <div className="mt-3 rounded-lg bg-surface-sunken p-3">
           <p className="text-xs font-medium text-ink-soft">
             From page {item.cite.page} of {item.cite.title}
+            {item.cite.read_from_picture && (
+              <span className="font-normal text-ink-faint"> · read from the slide's picture</span>
+            )}
           </p>
           <blockquote className="mt-1 text-sm leading-relaxed text-ink">{item.cite.quote}</blockquote>
         </div>

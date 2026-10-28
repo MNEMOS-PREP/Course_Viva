@@ -424,6 +424,7 @@ function CiteNote({ cite }: { cite: Cite }) {
     <details className="mt-1.5 text-xs text-ink-faint">
       <summary className="cursor-pointer hover:text-ink-soft">
         From page {cite.page} of {cite.title}
+        {cite.read_from_picture && " · read from the slide's picture"}
       </summary>
       <blockquote className="mt-1.5 border-l-2 border-brand-line pl-3 text-sm leading-relaxed text-ink-soft">
         {cite.quote}

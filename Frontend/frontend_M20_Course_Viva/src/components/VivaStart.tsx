@@ -8,13 +8,19 @@
  * long subject in sittings: the next ten pages are prepared while the
  * student answers these, and the panel shows which parts are done, which are
  * ready, and which pages are only pictures.
+ *
+ * "Upload a PDF" puts the student's own file in the course as theirs alone
+ * (no permission to state) and chooses it — its first ten pages if it is
+ * long. Pages that are pictures are read while they get ready (reading.py).
  */
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Icon, InterviewerPhoto, SkeletonRows, prepareLines, useSession } from "@ai/core";
 
+import { useAddMaterial } from "../api";
+import type { Material as LibraryMaterial } from "../types";
 import { plural } from "../ui/bits";
 import { useStartViva, useVivaScope } from "../vivaApi";
 import type { VivaPart, VivaScope } from "../vivaTypes";
@@ -51,6 +57,19 @@ export function VivaStart({ courseId }: { courseId: string }) {
   const [mode, setMode] = useState<"spoken" | "typed">("spoken");
   /** null: a lab viva when everything chosen is a lab manual. */
   const [labChoice, setLab] = useState<boolean | null>(null);
+  /** A file just uploaded with no text of its own: being read. */
+  const [readingNote, setReadingNote] = useState<string | null>(null);
+
+  const added = (m: LibraryMaterial) => {
+    setPick(m.pages > 10 ? { kind: "part", id: m.id, first: 1, last: 10 } : { kind: "material", id: m.id });
+    setReadingNote(
+      m.text_status === "no_text"
+        ? `${m.title} is pictures or a scan: its pages are being read now, a few a minute. The viva can start once the first are read.`
+        : null,
+    );
+  };
+  const upload = <UploadForViva courseId={courseId} onAdded={added} />;
+  const note = readingNote && <p className="mt-2 text-xs text-reported">{readingNote}</p>;
 
   // The examiner's opening, made by M11 while the student chooses: on the
   // CPU the greeting and warm-up took ~20 s to say, made as they were said.
@@ -97,8 +116,10 @@ export function VivaStart({ courseId }: { courseId: string }) {
       <>
         <p className="mt-2 text-sm text-ink-soft">
           An examiner asks only about what your material says, so a viva needs notes, slides or a
-          lab manual with text in it. Add one here and you can be examined on it straight away.
+          lab manual. Upload yours and you can be examined on it straight away.
         </p>
+        {upload}
+        {note}
         {excluded}
       </>,
     );
@@ -173,7 +194,7 @@ export function VivaStart({ courseId }: { courseId: string }) {
         <p className="min-w-0 text-sm leading-snug">
           <span className="block font-medium text-ink">{s.examiner.name}</span>
           <span className="block truncate text-xs text-ink-faint">
-            {s.examiner.title} · your examiner this time
+            {s.examiner.title} · your examiner
           </span>
         </p>
       </div>
@@ -183,7 +204,7 @@ export function VivaStart({ courseId }: { courseId: string }) {
         {s.units.map((unit) =>
           option(`u:${unit}`, pick.kind === "unit" && pick.unit === unit, () => setPick({ kind: "unit", unit }), unit),
         )}
-        {materials.length > 1 &&
+        {(materials.length > 1 || pick.kind === "material") &&
           materials.map((m) =>
             option(
               `m:${m.id}`,
@@ -206,7 +227,7 @@ export function VivaStart({ courseId }: { courseId: string }) {
                   `p:${m.id}:${p.first}`,
                   pick.kind === "part" && pick.id === m.id && pick.first === p.first,
                   () => setPick({ kind: "part", id: m.id, first: p.first, last: p.last }),
-                  <PartLabel part={p} />,
+                  <PartLabel part={p} reading={m.reading} />,
                   p.pages_with_text === 0,
                 ),
               )}
@@ -214,6 +235,8 @@ export function VivaStart({ courseId }: { courseId: string }) {
           </div>
         ))}
       </fieldset>
+      {upload}
+      {note}
       {hasLab && (
         <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-sunken">
           <input
@@ -290,7 +313,7 @@ export function VivaStart({ courseId }: { courseId: string }) {
 }
 
 /** "Pages 11–20 · done" — what a part holds, and where the student is with it. */
-function PartLabel({ part }: { part: VivaPart }) {
+function PartLabel({ part, reading }: { part: VivaPart; reading: boolean }) {
   const pictures = part.picture_pages.length;
   return (
     <span className="flex flex-wrap items-baseline gap-x-2" data-numeric>
@@ -303,11 +326,60 @@ function PartLabel({ part }: { part: VivaPart }) {
           {!part.done && part.ready && <span className="text-xs text-brand">ready</span>}
           {pictures > 0 && (
             <span className="text-xs text-ink-faint" title={`Pages ${part.picture_pages.join(", ")}`}>
-              {plural(pictures, "picture")}
+              {reading ? `reading ${plural(pictures, "picture")}…` : plural(pictures, "picture")}
             </span>
           )}
         </>
       )}
     </span>
+  );
+}
+
+/** "Upload a PDF": the student's own file, into this course as theirs alone. */
+function UploadForViva({
+  courseId,
+  onAdded,
+}: {
+  courseId: string;
+  onAdded: (material: LibraryMaterial) => void;
+}) {
+  const add = useAddMaterial(courseId);
+  const input = useRef<HTMLInputElement>(null);
+  const choose = (file: File | undefined) => {
+    if (!file) return;
+    add.mutate(
+      {
+        file,
+        kind: file.name.toLowerCase().endsWith(".pptx") ? "slides" : "notes",
+        visibility: "private",
+      },
+      { onSuccess: (result) => onAdded(result.material) },
+    );
+  };
+  return (
+    <div className="mt-3">
+      <input
+        ref={input}
+        type="file"
+        accept=".pdf,.pptx,.docx,application/pdf"
+        className="sr-only"
+        aria-label="A PDF to be examined on"
+        onChange={(e) => {
+          choose(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => input.current?.click()}
+        disabled={add.isPending}
+        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-brand-line text-sm font-medium text-brand hover:border-brand hover:bg-brand-soft disabled:opacity-60"
+      >
+        <Icon name="document" size={14} />
+        {add.isPending ? "Adding your PDF…" : "Upload a PDF to be examined on"}
+      </button>
+      <p className="mt-1 text-xs text-ink-faint">Only you see it. Slides and Word files work too.</p>
+      {add.error && <p className="mt-1 text-xs text-contested">{add.error.message}</p>}
+    </div>
   );
 }
