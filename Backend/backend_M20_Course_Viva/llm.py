@@ -60,7 +60,7 @@ JOBS: dict[str, JobSpec] = {
     JOB_BANK: JobSpec(
         tier="generation",
         env="M20_MODEL_BANK",
-        max_tokens=2000,
+        max_tokens=4000,
         timeout_s=float(os.getenv("M20_BANK_TIMEOUT", "60")),
     ),
     # On the path from an answer to the examiner's reply: bounded tightly,

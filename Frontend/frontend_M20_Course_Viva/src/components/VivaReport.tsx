@@ -15,7 +15,8 @@ import { openFile } from "../api";
 import { plural } from "../ui/bits";
 import { HELP_LABEL, VERDICT, VERDICT_ORDER, VerdictBadge } from "../ui/verdict";
 import { useVivaReport } from "../vivaApi";
-import type { ReportItem, VivaReport as Report } from "../vivaTypes";
+import type { LabStage, ReportItem, VivaReport as Report } from "../vivaTypes";
+import { NextPart, pagesLabel, scopeLabel } from "./NextPart";
 
 export function VivaReport() {
   const { vivaId = "" } = useParams();
@@ -47,9 +48,11 @@ function ReportView({ report }: { report: Report }) {
       <header className="border-b border-line pb-6">
         <p className="text-sm font-medium text-ink-faint">
           {v.course && <span className="code mr-2">{v.course.code}</span>}
-          {v.scope} · with {v.examiner} · {new Date(v.started_at).toLocaleDateString()}
+          {scopeLabel(v.scope, v.part)} · with {v.examiner} · {new Date(v.started_at).toLocaleDateString()}
         </p>
-        <h1 className="mt-1 text-title font-semibold tracking-tight text-ink">Your viva report</h1>
+        <h1 className="mt-1 text-title font-semibold tracking-tight text-ink">
+          Your {v.style === "lab" ? "lab viva" : "viva"} report
+        </h1>
         <p className="mt-2 text-sm text-ink-soft" data-numeric>
           {plural(answered, "question")} answered
           {v.status === "live" && " so far — the viva is still open"}
@@ -75,6 +78,8 @@ function ReportView({ report }: { report: Report }) {
           </Link>
         </div>
       </header>
+
+      {report.coverage && <Coverage report={report} />}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Panel title="What you knew">
@@ -150,6 +155,46 @@ function ReportView({ report }: { report: Report }) {
   );
 }
 
+/** "1, 2 and 4" */
+function listed(pages: number[]): string {
+  if (pages.length <= 1) return pages.join("");
+  return `${pages.slice(0, -1).join(", ")} and ${pages[pages.length - 1]}`;
+}
+
+/** What this sitting covered of a long document, what it could not, and the
+ *  next ten pages — so "no page lost" is something the student can see. */
+function Coverage({ report }: { report: Report }) {
+  const c = report.coverage!;
+  const v = report.viva;
+  const pictures = c.picture_pages;
+  return (
+    <section aria-labelledby="coverage" className="rounded-xl border border-line bg-surface p-5">
+      <h2 id="coverage" className="font-semibold text-ink">
+        {c.title}, {pagesLabel(c.first, c.last)}
+      </h2>
+      <p className="mt-1.5 text-sm text-ink-soft" data-numeric>
+        {c.asked_from.length
+          ? `The questions came from ${c.asked_from.length === 1 ? "page" : "pages"} ${listed(c.asked_from)}.`
+          : "No question was asked from these pages."}{" "}
+        {pictures.length > 0 &&
+          `${pictures.length === 1 ? "Page" : "Pages"} ${listed(pictures)} ${
+            pictures.length === 1 ? "is a picture or a title" : "are pictures or titles"
+          } — there is no text to ask from, so look at ${pictures.length === 1 ? "it" : "them"} yourself.`}
+      </p>
+      {report.next_part && v.course && v.status === "ended" && (
+        <NextPart
+          next={report.next_part}
+          courseId={v.course.id}
+          mode={v.mode}
+          style={v.style}
+          questions={v.target}
+          className="mt-4"
+        />
+      )}
+    </section>
+  );
+}
+
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="rounded-xl border border-line bg-surface p-5">
@@ -215,6 +260,16 @@ function Sounded({ report }: { report: Report }) {
   );
 }
 
+const STAGE_LABEL: Record<LabStage, string> = {
+  principle: "Principle",
+  procedure: "Procedure",
+  observations: "Observations",
+  result: "Result",
+  precautions: "Precautions",
+  "sources of error": "Sources of error",
+  aim: "Aim",
+};
+
 function ItemCard({ item }: { item: ReportItem }) {
   const meta = VERDICT[item.status];
   return (
@@ -227,6 +282,7 @@ function ItemCard({ item }: { item: ReportItem }) {
           </span>
         ))}
         <span className="ml-auto text-xs text-ink-faint">
+          {item.stage && <span className="font-medium text-ink-soft">{STAGE_LABEL[item.stage]} · </span>}
           {item.answer_length === "short" ? "Short answer · " : item.answer_length === "long" ? "Long answer · " : ""}
           Question {item.item}
         </span>

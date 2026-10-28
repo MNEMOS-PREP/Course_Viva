@@ -43,6 +43,7 @@ import {
 
 import { VerdictBadge } from "../ui/verdict";
 import { useAnswer, useEndViva, useHint, useViva } from "../vivaApi";
+import { NextPart, scopeLabel } from "./NextPart";
 import type { AnswerTiming, Cite, VivaState, VivaTurn } from "../vivaTypes";
 
 const KIND_LABEL: Partial<Record<VivaTurn["kind"], string>> = {
@@ -228,10 +229,10 @@ function Room({ state }: { state: VivaState }) {
         <div className="min-w-0">
           <p className="text-sm font-medium text-ink-faint">
             {state.course && <span className="code mr-2">{state.course.code}</span>}
-            {state.scope.label}
+            {scopeLabel(state.scope.label, state.part)}
           </p>
           <h1 className="mt-1 text-title font-semibold tracking-tight text-ink">
-            Viva with {state.examiner.name}
+            {state.style === "lab" ? "Lab viva" : "Viva"} with {state.examiner.name}
           </h1>
         </div>
         <div className="flex items-center gap-4">
@@ -354,6 +355,16 @@ function Room({ state }: { state: VivaState }) {
               >
                 See your report <Icon name="arrowRight" size={14} />
               </Link>
+              {state.next_part && state.course && (
+                <NextPart
+                  next={state.next_part}
+                  courseId={state.course.id}
+                  mode={state.mode}
+                  style={state.style}
+                  questions={state.target}
+                  className="mt-4 border-t border-line pt-4"
+                />
+              )}
             </div>
           )}
         </section>

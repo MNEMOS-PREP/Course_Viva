@@ -23,6 +23,7 @@ const V = "/v1/vivas";
 const seg = (id: string) => encodeURIComponent(id).replace(/%3A/gi, ":");
 
 export const vivaKeys = {
+  scopes: ["m20", "viva", "scope"] as const,
   scope: (courseId: string) => ["m20", "viva", "scope", courseId] as const,
   state: (id: string) => ["m20", "viva", "state", id] as const,
   report: (id: string) => ["m20", "viva", "report", id] as const,
@@ -64,6 +65,9 @@ function useStep<T>(id: string, step: (input: T) => Promise<VivaState>) {
       if (state.status === "ended") {
         client.invalidateQueries({ queryKey: vivaKeys.mine });
         client.invalidateQueries({ queryKey: vivaKeys.report(id) });
+        // A part done, and the next one banked meanwhile: the start panel's
+        // "done" and "ready" have changed.
+        client.invalidateQueries({ queryKey: vivaKeys.scopes });
       }
     },
   });

@@ -12,6 +12,51 @@ export type AnswerStatus = "correct" | "partial" | "missed" | "incorrect" | "bla
 export type ItemStatus = AnswerStatus | "not_answered";
 /** short: one fact in a line · long: explained in a few sentences. */
 export type AnswerLength = "short" | "long";
+/** course: the material, page by page · lab: an experiment's steps, in a lab
+ *  examiner's order (FR-20.19). */
+export type VivaStyle = "course" | "lab";
+/** A lab viva's steps, in the order they are asked (bank.LAB_STAGES). */
+export type LabStage =
+  | "principle"
+  | "procedure"
+  | "observations"
+  | "result"
+  | "precautions"
+  | "sources of error"
+  | "aim";
+
+/** Ten pages of a long document (bank.PART_PAGES): what a viva takes at a time. */
+export interface VivaPart {
+  part: number;
+  first: number;
+  last: number;
+  pages_with_text: number;
+  /** Pages with no text to ask from — a picture, or a title. */
+  picture_pages: number[];
+  questions: number;
+  /** Its questions are banked: the viva starts without waiting. */
+  ready: boolean;
+  /** This student finished a viva on it. */
+  done: boolean;
+}
+
+/** The pages of one document a viva is on (viva.span_of). */
+export interface VivaSpan {
+  material_id: string;
+  first: number;
+  last: number;
+}
+
+/** The next part with something to ask, after the one a viva was on
+ *  (viva.next_part): a part of only pictures is passed over. */
+export interface NextPart {
+  material_id: string;
+  title: string;
+  first: number;
+  last: number;
+  pages_with_text: number;
+  ready: boolean;
+}
 
 export interface VivaScope {
   course: { id: string; code: string; title: string };
@@ -25,6 +70,8 @@ export interface VivaScope {
     usable_pages: number;
     /** Questions already banked from it. */
     questions: number;
+    /** Ten pages at a time, for a document longer than ten; else empty. */
+    parts: VivaPart[];
   }[];
   units: string[];
   excluded: { material_id: string; title: string; why: string }[];
@@ -68,8 +115,11 @@ export interface VivaState {
   status: "live" | "ended";
   end_reason: "complete" | "ended_by_student" | "replaced" | null;
   mode: "typed" | "spoken";
+  style: VivaStyle;
   course: { id: string; code: string; title: string } | null;
   scope: { label: string; excluded: { material_id: string; title: string; why: string }[] };
+  /** A viva on ten pages of a longer document: which ten. */
+  part: VivaSpan | null;
   /** One of the platform's academic interviewers: M11 casts the voice
    *  (`voice_id`) and has the photograph and, mostly, a 3D head (`id`). */
   examiner: { id: string; name: string; title: string; voice_id: string };
@@ -86,6 +136,8 @@ export interface VivaState {
   } | null;
   started_at: string;
   ended_at: string | null;
+  /** Once ended, for a viva on part of a document: the part after it. */
+  next_part: NextPart | null;
 }
 
 export interface Measures {
@@ -116,6 +168,8 @@ export interface ReportItem {
   item: number;
   question: string;
   family: string | null;
+  /** A lab viva's step; null on a course viva. */
+  stage: LabStage | null;
   difficulty: number | null;
   answer_length: AnswerLength | null;
   status: ItemStatus;
@@ -137,14 +191,27 @@ export interface VivaReport {
     id: string;
     course: { id: string; code: string; title: string } | null;
     scope: string;
+    part: VivaSpan | null;
     examiner: string;
     mode: "typed" | "spoken";
+    style: VivaStyle;
     status: "live" | "ended";
     end_reason: string | null;
     target: number;
     started_at: string;
     ended_at: string | null;
   };
+  /** For a viva on part of one document: the pages asked from, and those
+   *  with nothing to ask (pictures). */
+  coverage: {
+    material_id: string;
+    title: string;
+    first: number;
+    last: number;
+    asked_from: number[];
+    picture_pages: number[];
+  } | null;
+  next_part: NextPart | null;
   counts: Record<ItemStatus, number>;
   items: ReportItem[];
   knew: number[];
@@ -164,8 +231,10 @@ export interface VivaSummary {
   id: string;
   course: { id: string; code: string; title: string } | null;
   scope: string;
+  part: VivaSpan | null;
   status: "live" | "ended";
   mode: "typed" | "spoken";
+  style: VivaStyle;
   started_at: string;
   target: number;
   correct: number;
@@ -176,7 +245,10 @@ export interface StartVivaInput {
   course_id: string;
   material_ids?: string[];
   unit?: string;
+  /** {material_id: [first page, last page]} */
+  pages?: Record<string, [number, number]>;
   mode?: "typed" | "spoken";
+  style?: VivaStyle;
   questions?: number;
 }
 

@@ -49,7 +49,9 @@ def test_a_question_whose_quote_is_not_on_its_page_is_dropped():
     """AC-20.2 [GATE]: every viva question cites a span that is in its page."""
     raw = (
         StubLLM()
-        .structured(job="viva_bank", system="", user=f"<<<PAGE\n{SLIDES[0]}\nPAGE", schema={})
+        .structured(
+            job="viva_bank", system="", user=f"<<<PAGES\n[PAGE 1]\n{SLIDES[0]}\nPAGES", schema={}
+        )
         .data
     )
     drafted = bank.check(raw, SLIDES[0], "m1", 1, "stub")

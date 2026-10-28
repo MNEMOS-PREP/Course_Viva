@@ -372,6 +372,15 @@ def test_the_bank_is_readable_with_the_material_and_reviewable_by_the_placement_
         assert (
             session.exec(select(Question).where(Question.id == question)).one().status == "retired"
         )
+    # Gone from the list, and back with `retired` — so a retirement can be undone.
+    after = client.get(f"/v1/vivas/bank/{material['id']}", headers=as_curator()).json()
+    assert question not in [q["id"] for q in after["questions"]]
+    every = client.get(
+        f"/v1/vivas/bank/{material['id']}", params={"retired": True}, headers=as_curator()
+    ).json()
+    assert {q["id"]: q["status"] for q in every["questions"]}[question] == "retired"
+    assert all(q["current"] for q in every["questions"])
+    assert every["pages_banked"] == 3 and every["skipped"] == []
 
 
 @pytest.mark.parametrize(
@@ -395,13 +404,16 @@ def test_short_and_long_questions_take_turns_starting_short(client, engine):
         def structured(self, **kw):
             result = super().structured(**kw)
             if kw["job"] == "viva_bank" and result.ok:
-                long_one = result.data["questions"][0]
-                short_one = {
-                    **long_one,
-                    "question": f"Name one thing from this: {long_one['question'][-30:]}",
-                    "answer_points": long_one["answer_points"][:1],
-                }
-                result.data["questions"] = [long_one, short_one]
+                # A long and a short question on every page of the part.
+                mixed = []
+                for long_one in result.data["questions"][:-1]:
+                    short_one = {
+                        **long_one,
+                        "question": f"Name one thing from this: {long_one['question'][-30:]}",
+                        "answer_points": long_one["answer_points"][:1],
+                    }
+                    mixed += [long_one, short_one]
+                result.data["questions"] = mixed
             return result
 
     llm.set_llm(Mixed())

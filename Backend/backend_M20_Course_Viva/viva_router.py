@@ -75,6 +75,10 @@ def scope(course_id: str, db_session: SessionDep, request: Request) -> dict:
                 "pages": m.pages,
                 "usable_pages": pages_by_material.get(m.id, 0),
                 "questions": banked.get(m.id, 0),
+                # A long document is taken ten pages at a time (bank.PART_PAGES).
+                "parts": viva.parts(db_session, m, viewer.subject)
+                if m.pages > bank.PART_PAGES
+                else [],
             }
             for m in found.materials
         ],
@@ -91,6 +95,8 @@ class StartIn(BaseModel):
     #: {material_id: [first page, last page]}
     pages: dict[str, list[int]] | None = None
     mode: str = "typed"
+    #: "lab" walks an experiment's steps (FR-20.19); "course" the material.
+    style: str = "course"
     questions: int = Field(
         default=viva.DEFAULT_QUESTIONS, ge=viva.MIN_QUESTIONS, le=viva.MAX_QUESTIONS
     )
@@ -114,6 +120,7 @@ def start(
             pages=body.pages,
             mode=body.mode,
             questions=body.questions,
+            style=body.style,
         )
     except viva.VivaError as error:
         raise _fail(error) from error
@@ -200,29 +207,40 @@ def _question_out(q: Question) -> dict:
         "difficulty": q.difficulty,
         "status": q.status,
         "written_by": q.generated_by,
+        # Written under an older bank prompt: the page is banked again when a
+        # viva next reaches it, and this one is retired then.
+        "current": q.prompt_version == bank.PROMPT_VERSION,
     }
 
 
 @router.get("/bank/{material_id}")
-def bank_of(material_id: str, db_session: SessionDep, request: Request) -> dict:
-    """A material's questions — readable by anyone who can read the material."""
+def bank_of(
+    material_id: str, db_session: SessionDep, request: Request, retired: bool = False
+) -> dict:
+    """A material's questions — readable by anyone who can read the material;
+    with `retired`, the retired ones too, so a retirement can be undone."""
     viewer = viewer_of(request)
     material = db_session.exec(
         select(Material).where(Material.id == material_id, visible(viewer))
     ).first()
     if material is None:
         raise HTTPException(status_code=404, detail="No such material.")
-    rows = db_session.exec(
-        select(Question)
-        .where(Question.material_id == material_id, Question.status != "retired")
-        .order_by(Question.page, Question.span_start)
-    ).all()
+    query = select(Question).where(Question.material_id == material_id)
+    if not retired:
+        query = query.where(Question.status != "retired")
+    rows = db_session.exec(query.order_by(Question.page, Question.span_start)).all()
     pages = db_session.exec(
         select(bank.BankPage).where(bank.BankPage.material_id == material_id)
     ).all()
     return {
         "material": {"id": material.id, "title": material.title, "pages": material.pages},
-        "pages_banked": len(pages),
+        "pages_banked": sum(1 for p in pages if bank.current(p)),
+        # Banked pages that gave no question, and why ("too short to examine").
+        "skipped": [
+            {"page": p.page, "why": p.reason or ""}
+            for p in sorted(pages, key=lambda p: p.page)
+            if bank.current(p) and p.questions == 0
+        ],
         "questions": [_question_out(q) for q in rows],
     }
 

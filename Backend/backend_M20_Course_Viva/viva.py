@@ -250,6 +250,26 @@ def _cite(session: Session, question: Question) -> dict[str, Any]:
 # ── Choosing the next question ──────────────────────────────────────────────
 
 
+def style_of(viva: Viva) -> str:
+    return (viva.scope or {}).get("style") or "course"
+
+
+def lab_stage(question: Question) -> int:
+    """Where a question falls in a lab viva's walk (FR-20.19): after every
+    step when its family is in none."""
+    for index, (_name, families) in enumerate(bank.LAB_STAGES):
+        if question.family in families:
+            return index
+    return len(bank.LAB_STAGES)
+
+
+def stage_name(question: Question) -> str | None:
+    index = lab_stage(question)
+    if index < len(bank.LAB_STAGES):
+        return bank.LAB_STAGES[index][0]
+    return "aim" if question.family == "aim" else None
+
+
 def _asked_before(session: Session, student: str, exclude_viva: str) -> set[str]:
     rows = session.exec(
         select(VivaTurn.question_id)
@@ -296,6 +316,39 @@ def _next_question(session: Session, viva: Viva, *, llm: Any = None) -> Question
     def ready(ref: tuple) -> list[Question]:
         return [q for q in bank.asked_from(session, [ref]) if q.id not in asked]
 
+    # A lab viva walks the experiment the way a lab examiner does (FR-20.19):
+    # principle, procedure, observations, result, precautions, sources of
+    # error — a step the manual does not state is skipped, and the walk goes
+    # round again when there are more questions than steps. The aim was the
+    # warm-up, so a question on it comes only when nothing else is left.
+    # Within a step, the usual choice: new to this student, short and long
+    # in turn.
+    lab = style_of(viva) == "lab"
+    steps: dict[int, int] = {}
+    for question_id in asked_ids if lab else ():
+        done = session.get(Question, question_id)
+        if done is not None:
+            steps[lab_stage(done)] = steps.get(lab_stage(done), 0) + 1
+
+    def walk() -> Question | None:
+        pool = [
+            (position, q)
+            for position, ref in enumerate(plan)
+            if bank.current(session.get(bank.BankPage, ref))
+            for q in ready(ref)
+        ]
+        if not pool:
+            return None
+
+        def step(pq: tuple[int, Question]) -> tuple:
+            stage = lab_stage(pq[1])
+            return (pq[1].family == "aim", steps.get(stage, 0), stage, *rank(pq[1], pq[0]))
+
+        return min(pool, key=step)[1]
+
+    if lab and (chosen := walk()) is not None:
+        return chosen
+
     # First what is banked already, in the order the viva walks the scope:
     # the background bank works ahead of the student, so this is usually
     # where the next question is, and nobody waits on a model for it. The
@@ -321,7 +374,9 @@ def _next_question(session: Session, viva: Viva, *, llm: Any = None) -> Question
         bank.ensure(session, ref[0], ref[1], llm=llm)
         banked_now += 1
         if ready(ref):
-            return min(ready(ref), key=rank)
+            # A page is banked with its whole part, so a lab walk now sees
+            # every step of those pages.
+            return walk() if lab else min(ready(ref), key=rank)
     return None
 
 
@@ -346,7 +401,110 @@ def prefetch(session: Session, viva_id: str, *, llm: Any = None, ahead: int = PR
         if not bank.current(session.get(bank.BankPage, ref)):
             bank.ensure(session, ref[0], ref[1], llm=llm)
             done += 1
+    if done == 0:
+        # This part is ready: the next one is prepared while the student
+        # answers, so "pages 11–20" is ready when they finish these.
+        after = next_part(session, viva)
+        if after is not None and not after["ready"]:
+            bank.ensure(session, after["material_id"], after["first"], llm=llm)
+            done += 1
     return done
+
+
+# ── Parts: a long document, ten pages at a time ─────────────────────────────
+
+
+def _text_pages(session: Session, material_id: str, first: int, last: int) -> list[int]:
+    rows = session.exec(
+        select(MaterialPage.page, func.length(MaterialPage.text)).where(
+            MaterialPage.material_id == material_id,
+            MaterialPage.page >= first,
+            MaterialPage.page <= last,
+        )
+    ).all()
+    return sorted(page for page, length in rows if (length or 0) >= bank.MIN_PAGE_CHARS)
+
+
+def _part_ready(session: Session, material_id: str, pages: list[int]) -> bool:
+    return all(bank.current(session.get(bank.BankPage, (material_id, p))) for p in pages)
+
+
+def parts(session: Session, material: Material, student: str | None) -> list[dict[str, Any]]:
+    """A document's parts: which pages each holds, which of them are only a
+    picture (no text to ask from, said rather than hidden), how many
+    questions are ready, and whether this student has done a viva on it."""
+    done: set[tuple[int, int]] = set()
+    if student:
+        for viva in session.exec(
+            select(Viva).where(Viva.student == student, Viva.status == "ended")
+        ).all():
+            span = (viva.scope.get("pages") or {}).get(material.id)
+            if span and viva.end_reason == "complete":
+                done.add((span[0], span[1]))
+    out = []
+    for first in range(1, max(material.pages, 1) + 1, bank.PART_PAGES):
+        last = min(first + bank.PART_PAGES - 1, material.pages)
+        text = _text_pages(session, material.id, first, last)
+        questions = session.exec(
+            select(func.count())
+            .select_from(Question)
+            .where(
+                Question.material_id == material.id,
+                Question.page >= first,
+                Question.page <= last,
+                Question.status.in_(("draft", "reviewed")),
+                Question.prompt_version == bank.PROMPT_VERSION,
+            )
+        ).one()
+        out.append(
+            {
+                "part": len(out) + 1,
+                "first": first,
+                "last": last,
+                "pages_with_text": len(text),
+                "picture_pages": [p for p in range(first, last + 1) if p not in text],
+                "questions": questions,
+                "ready": bool(text) and _part_ready(session, material.id, text),
+                "done": (first, last) in done,
+            }
+        )
+    return out
+
+
+def span_of(session: Session, viva: Viva) -> dict[str, Any] | None:
+    """The pages of one document a viva is on, when it is on a part."""
+    spans = viva.scope.get("pages") or {}
+    if len(spans) != 1:
+        return None
+    material_id, (first, last) = next(iter(spans.items()))
+    material = session.get(Material, material_id)
+    if material is None:
+        return None
+    return {"material_id": material_id, "first": first, "last": min(last, material.pages)}
+
+
+def next_part(session: Session, viva: Viva) -> dict[str, Any] | None:
+    """For a viva on one part of a document, the next part with something to
+    ask — ten pages of pictures are passed over, not offered."""
+    span = span_of(session, viva)
+    if span is None:
+        return None
+    material = session.get(Material, span["material_id"])
+    first = span["last"] + 1
+    while first <= material.pages:
+        end = min(first + bank.PART_PAGES - 1, material.pages)
+        text = _text_pages(session, material.id, first, end)
+        if text:
+            return {
+                "material_id": material.id,
+                "title": material.title,
+                "first": first,
+                "last": end,
+                "pages_with_text": len(text),
+                "ready": _part_ready(session, material.id, text),
+            }
+        first = end + 1
+    return None
 
 
 # ── The examiner's lines ────────────────────────────────────────────────────
@@ -415,11 +573,14 @@ def start(
     pages: dict[str, list[int]] | None = None,
     mode: str = "typed",
     questions: int = DEFAULT_QUESTIONS,
+    style: str = "course",
 ) -> Viva:
     if viewer.subject is None:
         raise VivaError(401, "Sign in to take a viva.")
     if mode not in ("typed", "spoken"):
         raise VivaError(422, "A viva is typed or spoken.")
+    if style not in ("course", "lab"):
+        raise VivaError(422, "A viva is on a course or a lab.")
     live = session.exec(
         select(Viva).where(Viva.student == viewer.subject, Viva.status == "live")
     ).all()
@@ -449,23 +610,28 @@ def start(
         "unit": unit,
         "pages": pages or {},
         "excluded": scope.excluded,
+        "style": style,
     }
     viva.plan = _visit_order(scope.pages, target, viva.id)
     session.add(viva)
     session.flush()
 
     name = _examiner(viva)["name"]
+    kind = "lab viva" if style == "lab" else "viva"
+    span = span_of(session, viva)
+    on = f"{scope.label}, pages {span['first']} to {span['last']}" if span else scope.label
     _say(
         session,
         viva,
         "examiner",
         "greeting",
         # Said aloud: short, the way an examiner opens. The course is on screen.
-        f"Hello, I'm {name}. This is your viva on {scope.label} — {target} questions. "
+        f"Hello, I'm {name}. This is your {kind} on {on} — {target} questions. "
         "If you don't know something, just say so.",
         0,
     )
-    lab = any(m.kind == "lab_manual" for m in scope.materials)
+    # An experiment opens on its aim; anything else on what it is about.
+    lab = style == "lab" or all(m.kind == "lab_manual" for m in scope.materials)
     warmup = (
         f"Let's begin with an easy one. In your own words, what is the aim of {scope.label}?"
         if lab
@@ -518,7 +684,13 @@ def _close(session: Session, viva: Viva, reason: str) -> None:
         "replaced": "We'll stop this one here.",
     }
     done = sum(1 for t in _turns(session, viva.id) if t.kind == "question")
-    _say(session, viva, "examiner", "close", lines.get(reason, lines["complete"]), done)
+    line = lines.get(reason, lines["complete"])
+    after = next_part(session, viva) if reason == "complete" else None
+    if after is not None:
+        # A part of a longer document: say what comes next, as an examiner
+        # taking a long subject in sittings would.
+        line += f" When you're ready, we'll go on to pages {after['first']} to {after['last']}."
+    _say(session, viva, "examiner", "close", line, done)
     _finish(viva, reason)
 
 
@@ -700,8 +872,10 @@ def state(session: Session, viva: Viva) -> dict[str, Any]:
         "status": viva.status,
         "end_reason": viva.end_reason,
         "mode": viva.mode,
+        "style": style_of(viva),
         "course": {"id": course.id, "code": course.code, "title": course.title} if course else None,
         "scope": {"label": viva.scope.get("label"), "excluded": viva.scope.get("excluded", [])},
+        "part": span_of(session, viva),
         "examiner": _examiner(viva),
         "target": viva.target,
         "asked": asked,
@@ -720,6 +894,9 @@ def state(session: Session, viva: Viva) -> dict[str, Any]:
         ),
         "started_at": viva.started_at.isoformat(),
         "ended_at": viva.ended_at.isoformat() if viva.ended_at else None,
+        # A part of a longer document: the one after it, and whether its
+        # questions are ready (they are banked while this one runs).
+        "next_part": next_part(session, viva) if viva.status == "ended" else None,
     }
 
 
@@ -750,6 +927,7 @@ def _item_status(answers: list[VivaTurn]) -> tuple[str, list[str]]:
 def report(session: Session, viva: Viva) -> dict[str, Any]:
     turns = _turns(session, viva.id)
     course = session.get(Course, viva.course_id)
+    lab = style_of(viva) == "lab"
     items: list[dict[str, Any]] = []
     asked = [t for t in turns if t.kind == "question"]
     for q_turn in asked:
@@ -770,6 +948,8 @@ def report(session: Session, viva: Viva) -> dict[str, Any]:
                 "item": q_turn.item,
                 "question": question.text if question else q_turn.text,
                 "family": question.family if question else None,
+                # A lab viva's step: "principle", "procedure", … (FR-20.19).
+                "stage": stage_name(question) if question and lab else None,
                 "answer_length": question.answer_length if question else None,
                 "difficulty": question.difficulty if question else None,
                 "status": status,
@@ -852,14 +1032,18 @@ def report(session: Session, viva: Viva) -> dict[str, Any]:
             if course
             else None,
             "scope": viva.scope.get("label"),
+            "part": span_of(session, viva),
             "examiner": _examiner(viva)["name"],
             "mode": viva.mode,
+            "style": style_of(viva),
             "status": viva.status,
             "end_reason": viva.end_reason,
             "target": viva.target,
             "started_at": viva.started_at.isoformat(),
             "ended_at": viva.ended_at.isoformat() if viva.ended_at else None,
         },
+        "coverage": _coverage(session, viva, items),
+        "next_part": next_part(session, viva),
         "counts": counts,
         "items": items,
         "knew": knew,
@@ -874,6 +1058,30 @@ def report(session: Session, viva: Viva) -> dict[str, Any]:
             for t in student_answers
             if t.verdict
         ),
+    }
+
+
+def _coverage(session: Session, viva: Viva, items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """For a viva on a part of one document: the pages the questions came
+    from, and the pages no question could come from (pictures) — so a student
+    knows what this sitting covered and what it could not."""
+    spans = viva.scope.get("pages") or {}
+    if len(spans) != 1:
+        return None
+    material_id, (first, last) = next(iter(spans.items()))
+    material = session.get(Material, material_id)
+    if material is None:
+        return None
+    last = min(last, material.pages)
+    text = _text_pages(session, material_id, first, last)
+    asked = sorted({i["cite"]["page"] for i in items if i.get("cite")})
+    return {
+        "material_id": material_id,
+        "title": material.title,
+        "first": first,
+        "last": last,
+        "asked_from": asked,
+        "picture_pages": [p for p in range(first, last + 1) if p not in text],
     }
 
 
@@ -905,8 +1113,10 @@ def history(session: Session, student: str, limit: int = 30) -> list[dict[str, A
                 if course
                 else None,
                 "scope": viva.scope.get("label"),
+                "part": span_of(session, viva),
                 "status": viva.status,
                 "mode": viva.mode,
+                "style": style_of(viva),
                 "started_at": viva.started_at.isoformat(),
                 "target": viva.target,
                 "correct": sum(1 for s in finals.values() if s == "correct"),

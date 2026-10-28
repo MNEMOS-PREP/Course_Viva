@@ -47,9 +47,13 @@ def deck(slides: list[str] = SLIDES) -> bytes:
     return out.getvalue()
 
 
-def _page_of(prompt: str) -> str:
-    match = re.search(r"<<<PAGE\n(.*)\nPAGE$", prompt, re.S)
-    return match.group(1) if match else ""
+def pages_of(prompt: str) -> dict[int, str]:
+    """The pages a bank prompt carries, by their [PAGE n] markers."""
+    body = re.search(r"<<<PAGES\n(.*)\nPAGES$", prompt, re.S)
+    if not body:
+        return {}
+    parts = re.split(r"^\[PAGE (\d+)\]\n", body.group(1), flags=re.M)
+    return {int(parts[i]): parts[i + 1].strip() for i in range(1, len(parts) - 1, 2)}
 
 
 def _first_sentence(text: str) -> str:
@@ -76,36 +80,35 @@ class StubLLM:
         if job in self.fail:
             return LLMResult(ok=False, reason="scripted failure", job=job, model="stub")
         if job == JOB_BANK:
-            page = _page_of(user)
-            first = _first_sentence(page)
-            return LLMResult(
-                ok=True,
-                job=job,
-                model="stub-bank",
-                data={
-                    "questions": [
-                        {
-                            "family": "explain",
-                            "question": f"Explain this: {' '.join(first.split()[:6])}",
-                            "quote": first,
-                            "answer_points": [
-                                {"point": "the page is evicted", "probe": "Which page goes?"},
-                                {"point": "memory is full", "probe": "When does it happen?"},
-                            ],
-                            "hint": "Think about what happens when there is no free frame.",
-                            "difficulty": 1,
-                        },
-                        {
-                            "family": "definition",
-                            "question": "What is second chance replacement?",
-                            "quote": INVENTED,
-                            "answer_points": [{"point": "a reference bit", "probe": "What bit?"}],
-                            "hint": "",
-                            "difficulty": 2,
-                        },
-                    ]
-                },
+            questions = []
+            for number, text in pages_of(user).items():
+                first = _first_sentence(text)
+                questions.append(
+                    {
+                        "page": number,
+                        "family": "explain",
+                        "question": f"Explain this: {' '.join(first.split()[:6])}",
+                        "quote": first,
+                        "answer_points": [
+                            {"point": "the page is evicted", "probe": "Which page goes?"},
+                            {"point": "memory is full", "probe": "When does it happen?"},
+                        ],
+                        "hint": "Think about what happens when there is no free frame.",
+                        "difficulty": 1,
+                    }
+                )
+            questions.append(
+                {
+                    "page": 1,
+                    "family": "definition",
+                    "question": "What is second chance replacement?",
+                    "quote": INVENTED,
+                    "answer_points": [{"point": "a reference bit", "probe": "What bit?"}],
+                    "hint": "",
+                    "difficulty": 2,
+                }
             )
+            return LLMResult(ok=True, job=job, model="stub-bank", data={"questions": questions})
         if job == JOB_MARKING:
             answer = re.search(r"<<<ANSWER\n(.*)\nANSWER$", user, re.S).group(1)
             judged = [int(i) for i in re.findall(r"^  (\d+)\. ", user, re.M)]

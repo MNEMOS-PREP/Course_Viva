@@ -8,6 +8,7 @@ import { EmptyState, ErrorNote, PageHeader, SkeletonRows } from "@ai/core";
 
 import { Pill, ROOT } from "../ui/bits";
 import { useMyVivas } from "../vivaApi";
+import { scopeLabel } from "./NextPart";
 
 export function MyVivas() {
   const vivas = useMyVivas();
@@ -42,10 +43,11 @@ export function MyVivas() {
                 className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3.5 hover:bg-surface-sunken"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block font-medium text-ink">{v.scope}</span>
+                  <span className="block font-medium text-ink">{scopeLabel(v.scope, v.part)}</span>
                   <span className="text-xs text-ink-faint">
                     {v.course && <span className="code mr-2">{v.course.code}</span>}
-                    {v.course?.title} · {new Date(v.started_at).toLocaleDateString()}
+                    {v.course?.title} · {v.style === "lab" ? "lab viva · " : ""}
+                    {new Date(v.started_at).toLocaleDateString()}
                   </span>
                 </span>
                 {v.status === "live" ? (
