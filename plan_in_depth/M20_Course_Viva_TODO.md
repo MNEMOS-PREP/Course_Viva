@@ -1,6 +1,6 @@
 # M20 — TODO · Course Viva (Course Library + General Viva Practice)
 
-> **Completion: 50%** — 9 of 21 functional requirements met, 3 partly (2026-10-21: phase 0 and the library, phase 1, built). Spec: [M20_Course_Viva.md](M20_Course_Viva.md).
+> **Completion: 76%** — 14 of 21 functional requirements met, 4 partly (2026-10-28: the viva, phase 2, built — spoken and seen, or typed). Spec: [M20_Course_Viva.md](M20_Course_Viva.md).
 >
 > _Method: `(met + ½ × partial) ÷ total`, counted from the spec — the same measure as every other module._
 
@@ -52,10 +52,86 @@ Scope of the first sync (the user's call, 2026-10-21): **Engineering (B.Tech)**
 and the **School of Artificial Intelligence** programmes, at the five campuses
 **Amritapuri, Coimbatore, Bengaluru, Chennai, Amaravati**.
 
-## Where it stands (2026-10-21)
+## Where it stands (2026-10-28)
 
-**Phases 0 and 1 are built.** The library is loaded and browsable on :5220.
-The viva (phase 2) is not started, and nothing on screen offers one yet.
+**Phases 0, 1 and 2 are built.** The library is loaded and browsable on :5220,
+and a student can be vivaed on their own material: a course page offers
+"Practise a viva" on everything there, one unit or lab, or one document,
+answered by speaking or typing; the examiner is seen (a 3D head, or their
+photograph) and heard (M11's voice); the report says what they knew, what to
+reread (page-cited), and how they sounded.
+
+**Spoken and seen (2026-10-28, the user: "spoken and visual vivas, just like a
+real examiner, crisp questions covering long and short answers"):**
+
+- **The examiners** are four of the platform's academic interviewers (Dr.
+  Raghavan, Dr. Narayan, Professor Murthy, Dr. Deshpande): M11 casts each a
+  voice and has their photograph and 3D head. One per viva.
+- **The room** shows the examiner large beside the conversation — the head's
+  mouth moves with the voice, it looks at the student while they speak — and
+  speaks every examiner line (`useInterviewerVoice`; the browser's voice when
+  M11 is down). The student answers aloud: the mic opens once the examiner
+  has finished (not before — the voice takes seconds to make, and the room had
+  said "your turn" in that gap), `useTurnTaking` decides when the answer is
+  over, M11's recogniser writes it down whole, and the answer goes with how
+  long they waited (from the end of the question) and how long they spoke.
+  "Repeat the question", "Give me a hint", "I don't know", and "Type instead"
+  are always there; with M11's recogniser down the room says so and takes
+  typing.
+- **Short and long questions:** the bank asks for both — a one-line fact,
+  or an explanation in a few sentences — and code decides which by the answer's
+  points (one point = short). Crisp: a question over 28 words, or two joined
+  by "and how/why/what…", is dropped. The viva alternates, opening short; the
+  room says "a line will do" or "explain it in a few sentences".
+- **Found live and fixed:** a lab banked under an older prompt kept serving
+  its old questions (a banked page counted as done whatever it was banked
+  under); the examiner's 3D head never loaded in M20's dev server (Vite did
+  not pre-bundle the renderer, whose jszip import then failed, silently) —
+  `optimizeDeps.include` in `vite.config.ts`; the wait before an answer was
+  counted from the line appearing, not from the examiner finishing; a long
+  greeting outlasted the "voice never started" timer. Verified in headless
+  Edge with a recorded answer as the microphone: spoken, heard, transcribed
+  word for word, timed (3.3 s wait, 6.5 s answer).
+
+**The viva, as built (2026-10-28):**
+
+- **Question bank (`bank.py`):** a page is banked the first time a viva needs
+  it, for everyone after (`BankPage`). One model call per page (Groq
+  gpt-oss-120b, generation tier) drafts 3–6 questions, each with the words of
+  the page it is drawn from, answer points with a follow-up that does not give
+  them away, a hint and a difficulty. Code then drops any question whose quote
+  is not on the page (AC-20.2), any answer point the page does not make (an
+  acronym's expansion must be on the page whole), a third question on one
+  sentence, and any hint or question that points at the page ("look at the
+  Result line") — the student cannot see it during the viva. No model: questions
+  by rule from definitions and a lab manual's Aim / Principle / Result.
+- **The viva (`viva.py`):** greeting and an unmarked warm-up ("what is the aim
+  of Lab 6?") while the first pages bank in the background; then questions in
+  scope order, a different family each time, harder as it goes, not one this
+  student was asked before if another will do. Correct → next. Partial → one
+  follow-up for a missing point. Wrong or blank → a hint. Still not right →
+  taught, with the page to reread. Three examiners; their words are written by
+  rule, so a viva's only model call is marking.
+- **Marking (`marking.py`):** the model says which points the answer reached,
+  with the student's own words as evidence (found in the answer by code); a
+  wrong answer needs the wrong words quoted. Code decides: correct / partial /
+  missed (nothing reached, nothing wrong said) / incorrect (a contradiction) /
+  blank. An attempt then "I don't know" keeps the attempt.
+- **Report:** knew · read again (by page, with the quotes) · how you answered
+  (fillers per 100 words — M06's count —, wait before answering, long waits,
+  unfinished answers, words per answer; pace on spoken answers only) · the
+  trend over the last five vivas once there are three · question by question.
+- **Measured live (Groq, one key):** a page banks in ~2 s, an answer is marked
+  in ~1 s; with the student's pauses the background bank stays ahead, so an
+  answer comes back in ~1 s. Found live and fixed, each with a test: answers
+  took 38–74 s and the background bank failed "database is locked" (a request
+  held SQLite's write lock across the model call); "LRU stands for Least
+  Recently Used" asked of a page that never says so; hints pointing at the
+  page; "Now, Why…"; "missed" called "incorrect"; an attempt then "I don't
+  know" read as blank; the report claiming the model was down when it was not.
+- **Tests:** 111 backend (31 → 111), lint clean; frontend typecheck and build
+  clean; the room driven in headless Edge (Enter sends, the wait is measured,
+  hint works, no console errors).
 
 - **Catalogue:** 20 programmes, 46 campus × branch offerings, 18 curricula
   read, 2,001 courses (948 in semesters, 1,053 electives). The data comes from
@@ -101,9 +177,14 @@ silently dropped.
    earlier curriculum: parse the previous year too (34 curricula are listed
    but unread). Each is one more PDF through the same reader.
 3. **Fill the library.** The placement cell fills `Course_Viva_Material` and
-   imports it, then times one semester's folder (AC-20.7).
-4. **Phase 2, the viva.** Page-chunked question bank with cited spans
-   (AC-20.2), the typed viva room, then voice through M11.
+   imports it, then times one semester's folder (AC-20.7). The viva needs
+   material with text: today one test lab (23CSE214, Lab 6) is all there is.
+4. **Platform sign-in and the shell (FR-20.21):** "Library" and "Viva" in
+   Platform_Shell's menu; the shell proxies `/v1/voice` to M11 already.
+5. **A review screen for the bank (FR-20.14).** `GET /v1/vivas/bank/{id}` and
+   `POST /v1/vivas/bank/questions/{id}` exist; the placement cell has no page.
+6. **Lab viva mode (FR-20.19)** — the families are there; a mode that walks
+   aim → principle → procedure → observations → result → precautions.
 
 ## 1. The plan (project manager's view)
 
@@ -141,12 +222,12 @@ silently dropped.
 | FR-20.10 | ✅ Material shared across campuses by default; campus tag when local | P0 |
 | FR-20.11 | 🟡 Visibility, provenance and takedown — *private / held / platform, who / when / permission, takedown everywhere; the spec's "my campus" visibility is not built* | P0 |
 | FR-20.12 | ✅ Coverage view: what is still empty | P1 |
-| FR-20.13 | ⬜ Viva scope: course, units, labs, documents/pages | P0 |
-| FR-20.14 | ⬜ Question bank per page-chunk, each question citing its span | P0 |
-| FR-20.15 | ⬜ Viva session: examiner persona, spoken or typed, follow-ups, hint then teach | P0 |
-| FR-20.16 | ⬜ Marking against the cited span | P0 |
-| FR-20.17 | ⬜ Speaking measures: pace, fillers, silences, answer length, unfinished answers | P0 |
-| FR-20.18 | ⬜ Report: knew / reread (page-cited) / how you sounded, with trend | P0 |
+| FR-20.13 | ✅ Viva scope: course, units, labs, documents/pages — *`GET /v1/vivas/scope/{course}`; a scan or a link is left out and named; page ranges by API, the UI offers course / unit / document* | P0 |
+| FR-20.14 | 🟡 Question bank per page-chunk, each question citing its span — *banked once per page, cited, checked; reviewable by API, no review screen yet (Next 5)* | P0 |
+| FR-20.15 | ✅ Viva session: examiner persona, spoken or typed, follow-ups, hint then teach — *seen (3D head or photo) and heard through M11; answered aloud or typed* | P0 |
+| FR-20.16 | ✅ Marking against the cited span — *correct / partial / missed / incorrect / blank, with what was reached and what was missing* | P0 |
+| FR-20.17 | ✅ Speaking measures: pace, fillers, silences, answer length, unfinished answers — *pace and silences from spoken answers' timings (the wait counted from the end of the question); typed answers say pace is not measured* | P0 |
+| FR-20.18 | ✅ Report: knew / reread (page-cited) / how you sounded, with trend | P0 |
 | FR-20.19 | ⬜ Lab viva mode | P1 |
 | FR-20.20 | ⬜ Results to M04 behind consent | P1 |
 | FR-20.21 | ⬜ Platform sign-in and shell entries | P0 |
@@ -156,11 +237,11 @@ silently dropped.
 | AC | | Target |
 |---|---|---|
 | AC-20.1 **[GATE]** | ✅ Every campus shows exactly the programmes its programme pages list | 100% on sync |
-| AC-20.2 **[GATE]** | ⬜ Every viva question cites a span that is in its page | 100% |
+| AC-20.2 **[GATE]** | ✅ Every viva question cites a span that is in its page — *enforced in `bank.check`; two gate tests, one over a whole viva* | 100% |
 | AC-20.3 **[GATE]** | ✅ Nothing uploaded is visible beyond its visibility setting | 100% |
 | AC-20.4 | 🟡 Courses parsed for the latest curriculum of every in-scope programme — *85% of semesters (129 / 152)* | ≥ 90% |
 | AC-20.5 | ✅ Folder import re-run creates nothing new | 0 duplicates |
-| AC-20.6 | ⬜ Speaking measures improve over five vivas | reported |
+| AC-20.6 | 🟡 Speaking measures improve over five vivas — *the trend is computed and shown once there are three vivas; nobody has sat five yet* | reported |
 | AC-20.7 | ⬜ A semester's folder loads in under five minutes | measured |
 
 ## 4. Edge cases
@@ -169,11 +250,11 @@ Spec §9.
 
 - ✅ EC-20.1 a branch at one campus only · EC-20.2 an unreadable PDF stays unread with its PDFs
   linked (AID (ME)) · EC-20.3 combined "&" links dropped · EC-20.7 elective baskets listed by
-  slot · EC-20.8 no permission → held · EC-20.9 takedown everywhere, and the file cannot quietly
-  return · EC-20.10 the same file twice is one material
-- 🟡 EC-20.4 one material, but tagged with the first campus only · EC-20.5 a scan is stored as
-  `no_text`; the viva half is phase 2 · EC-20.6 the year can be switched; older years are not
-  read yet
+  slot · EC-20.8 no permission → held · EC-20.9 takedown everywhere — search, views and now the
+  question bank —, and the file cannot quietly return · EC-20.10 the same file twice is one
+  material · EC-20.5 a scan is stored as `no_text`, and a viva leaves it out and says why
+- 🟡 EC-20.4 one material, but tagged with the first campus only · EC-20.6 the year can be
+  switched; older years are not read yet
 
 ## 5. Open decisions (for the user)
 

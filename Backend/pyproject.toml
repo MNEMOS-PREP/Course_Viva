@@ -50,6 +50,9 @@ select = ["E", "F", "I", "B", "UP"]
 "**/router.py" = ["B008"]
 # Fixtures are data: a catalogue row reads best on one line.
 "**/tests/*.py" = ["E501"]
+# The model prompts: prose a model reads, wrapped where a sentence ends.
+"**/bank.py" = ["E501"]
+"**/marking.py" = ["E501"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

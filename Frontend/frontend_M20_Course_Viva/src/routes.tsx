@@ -18,9 +18,17 @@ import { ImportPage } from "./components/ImportPage";
 import { LibraryHome } from "./components/LibraryHome";
 import { ProgrammePage } from "./components/ProgrammePage";
 import { SearchPage } from "./components/SearchPage";
+import { MyVivas } from "./components/MyVivas";
+import { VivaReport } from "./components/VivaReport";
+import { VivaRoom } from "./components/VivaRoom";
 
 export const m20Routes = (
   <Route key="m20">
+    {/* The viva (phase 2): /viva, a room, its report. `viva` is a noun no
+        other module's screens use. */}
+    <Route path="/viva" element={<MyVivas />} />
+    <Route path="/viva/:vivaId" element={<VivaRoom />} />
+    <Route path="/viva/:vivaId/report" element={<VivaReport />} />
     <Route path="/library" element={<LibraryHome />} />
     <Route path="/library/search" element={<SearchPage />} />
     <Route path="/library/coverage" element={<CoveragePage />} />

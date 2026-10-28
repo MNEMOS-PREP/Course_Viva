@@ -2,7 +2,7 @@
  * M20 — Course Viva · public surface.
  *
  * Anything not exported here is private to this module. Platform_Shell mounts
- * `m20Routes` (phase 4); the viva screens join them in phase 2.
+ * `m20Routes` (phase 4); the viva screens (/viva) are among them.
  */
 
 export { m20Routes } from "./routes";

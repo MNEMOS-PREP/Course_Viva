@@ -15,6 +15,7 @@ import { openFile, useApprove, useCampus, useCourse, useMaterialPages, useTakeDo
 import type { CourseView, Material } from "../types";
 import { KIND_LABEL, KIND_ORDER, Pill, ROOT, Trail, paths, plural, sizeOf } from "../ui/bits";
 import { AddMaterial } from "./AddMaterial";
+import { VivaStart } from "./VivaStart";
 
 export function CoursePage() {
   const { campusId = "", programmeId = "", year = "", code = "" } = useParams();
@@ -98,6 +99,7 @@ export function CoursePage() {
           <Syllabus view={view} />
         </div>
         <aside className="space-y-4">
+          <VivaStart courseId={courseId} />
           <AddMaterial courseId={courseId} campusId={campusId} />
         </aside>
       </div>

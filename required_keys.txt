@@ -2,9 +2,25 @@
   M20 — COURSE VIVA · CREDENTIALS
 ===============================================================================
 
-NONE TODAY. The library (phase 1) needs no key: the catalogue sync reads public
-pages, and browse, upload, import and search run locally.
+Copy the lines you need into keys.txt (never committed) — here, in Backend/,
+or in the folder beside the repositories, which every module reads.
 
-The viva (phase 2) will need one LLM key, for question generation and marking.
-It will be listed here, with what it buys you, when that code lands. Until then
-there is nothing to copy into keys.txt.
+The library (phase 1) needs no key: the catalogue sync reads public pages, and
+browse, upload, import and search run locally.
+
+-------------------------------------------------------------------------------
+GROQ_API_KEYS="your-groq-key"
+-------------------------------------------------------------------------------
+  What it buys you: the viva (phase 2). One call per page of material to write
+  its questions — once, for every student who vivas on it — and one call per
+  answer to mark it. The examiner's other words are written without a model.
+
+  Without it: vivas still run. Questions are written by rule from what a page
+  states outright (definitions; a lab manual's Aim, Principle, Result), and
+  answers are marked by matching their words to the page. The report says so.
+
+  One key. Groq's free tier is 8K tokens a minute and 200K a day per model;
+  do not pool keys from different organisations (Groq's terms forbid it).
+
+  Optional: M20_MODEL_BANK / M20_MODEL_MARKING move one job to another model
+  (any id `ai_core.models` knows), without moving the rest of the platform.

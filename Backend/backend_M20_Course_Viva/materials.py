@@ -174,5 +174,9 @@ def take_down(session: Session, material_id: str) -> Material | None:
         return None
     material.status = "removed"
     session.exec(text(f"DELETE FROM {FTS_TABLE} WHERE material_id = :m").bindparams(m=material_id))
+    # ...and from every viva's question bank.
+    from .bank import retire_material  # noqa: PLC0415
+
+    retire_material(session, material_id)
     session.commit()
     return material

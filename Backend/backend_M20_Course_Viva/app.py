@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 from . import catalogue, config, db
 from .models import Course, Material, Meta, Programme
 from .router import router
+from .viva_router import router as viva_router
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(viva_router)
 
 
 @app.get("/health", tags=["ops"])

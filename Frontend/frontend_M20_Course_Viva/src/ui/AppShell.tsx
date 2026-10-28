@@ -91,6 +91,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: ROOT, label: "Library", end: true },
     { to: `${ROOT}/search`, label: "Search", end: false },
     { to: `${ROOT}/coverage`, label: "Coverage", end: false },
+    { to: "/viva", label: "My vivas", end: false },
     ...(isStaff(session) ? [{ to: `${ROOT}/import`, label: "Import a folder", end: false }] : []),
   ];
 

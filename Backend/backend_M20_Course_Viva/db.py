@@ -40,6 +40,7 @@ def init(target=None) -> None:
     target = target or engine
     _owner_unique(target)
     SQLModel.metadata.create_all(target)
+    _added_columns(target)
     with target.begin() as conn:
         conn.execute(
             text(
@@ -47,6 +48,22 @@ def init(target=None) -> None:
                 "USING fts5(text, material_id UNINDEXED, page UNINDEXED, tokenize='unicode61')"
             )
         )
+
+
+#: Columns added to a table after it shipped: (table, column, its DDL).
+#: `create_all` makes missing tables, never missing columns.
+ADDED_COLUMNS = (
+    # 2026-10-28: a viva asks short-answer and long-answer questions.
+    ("question", "answer_length", "VARCHAR NOT NULL DEFAULT 'long'"),
+)
+
+
+def _added_columns(target) -> None:
+    with target.begin() as conn:
+        for table, column, ddl in ADDED_COLUMNS:
+            have = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            if have and column not in have:
+                conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
 
 #: The constraint a material table made before 2026-10-26 carries.
