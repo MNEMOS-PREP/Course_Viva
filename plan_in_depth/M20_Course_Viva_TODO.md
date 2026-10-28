@@ -55,6 +55,17 @@ left from the research.
   `concept:answer_structuring` from the framing — GD Arena's path. Without
   consent, or for a question no concept matches, nothing is sent and the
   report says why; M04 down is tried again when the report is read.
+- **Live-checked, later the same night:** the cut-in in a real spoken
+  session (M11 running, a 51 s rambling answer as the microphone, on "What
+  does FIFO replace?"): the room ended the turn at 25.3 s, the examiner said
+  "Let me stop you there." and "Yes, that's right.", then — the deeper
+  follow-up, live too — "And when is a page replacement decision needed?".
+  The hand-off with M04 running: a platform student with practice consent,
+  three observations recorded (`moved_the_estimate: false`). M04 gained 9
+  reinforcement-learning concepts (Memory `d95cb35`), and 20 of the RL deck's
+  31 questions now land on one. Fixed on the way: "What does FIFO replace?"
+  went to queues ("fifo" is a queue's alias) — a name of several words now
+  counts when all its words are there, and the longer name wins.
 - **Found and fixed:** a measure taken many times read "not measured yet"
   after three typed vivas (now read over the vivas that measured it); a 9.3 →
   9.2 change read "worse" (under 5% is "steady"); the strengths text showed
