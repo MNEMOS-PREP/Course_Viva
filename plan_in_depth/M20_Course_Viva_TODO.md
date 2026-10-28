@@ -55,6 +55,23 @@ should have an upload PDF button".
   quote is. Bank prompt bank-12.
 - **Tests:** 199 backend (178 → 199), lint clean; typecheck and build clean.
 
+**Later the same day — ideas from other products (2026-10-28 research), built:**
+
+- ✅ **A second go at what was missed** (NotebookLM reruns missed cards): the
+  report offers "Try the N you missed again" — a viva on exactly the questions
+  not right first time, in the order asked, straight in with no warm-up.
+- ✅ **Deeper after a right short answer** (Sherpa probes a strong answer): the
+  long question on the same page comes next — "Right. And why…".
+- ✅ **What each ten pages are about**: the start panel lists a part's topics,
+  from its pages' own first lines.
+- ✅ **Near repeats** (the L2Q paper): the same question reworded is asked once;
+  a different number ("step 1" / "step 2") or question word ("which" / "why")
+  makes a different question.
+- **Found and fixed:** the start panel's fieldset grew to fit the longest line
+  (a fieldset's minimum width is its content), pushing the topics past the
+  panel's edge.
+- **Tests:** 207 backend (199 → 207).
+
 ### 2026-10-28 (evening) — long documents, lab vivas, the review screen, the shell
 
 The user: "if a user uploads a long PDF, how do you chunk it so that no loss
@@ -279,14 +296,12 @@ silently dropped.
    imports it, then times one semester's folder (AC-20.7). The viva needs
    material: today a test lab (23CSE214, Lab 6) and the user's 59-page RL
    deck (25AID301, private to the dev student, its pictures read).
-4. **From the product research (2026-10-28):** after a right short answer,
-   the "why" question on the same passage (Sherpa probes a strong answer
-   deeper); "practise what you missed" — a viva on the questions got wrong
-   (NotebookLM reruns missed cards); a near-duplicate check in the bank (the
-   L2Q paper); the page before a part as context (overlapping windows, the
-   slide-deck question paper); the topics of each part on the start panel;
-   hedges ("I think", "maybe") among the speaking measures; the examiner
-   cutting in when a one-line question gets a long ramble.
+4. **Left from the product research:** hedges ("I think", "maybe") among the
+   speaking measures — no module has a list to take them from yet (M06's
+   speech analysis counts fillers, not hedges); the page before a part sent
+   as context (overlapping windows) — one more page of tokens a call; the
+   examiner cutting in when a one-line question gets a long ramble (needs the
+   room to stop listening mid-answer).
 5. **Results to M04 behind consent (FR-20.20).**
 
 ## 1. The plan (project manager's view)
