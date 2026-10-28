@@ -53,6 +53,10 @@ const KIND_LABEL: Partial<Record<VivaTurn["kind"], string>> = {
 };
 
 type AnswerBy = "voice" | "typing";
+
+/** How long an answer may run before the examiner stops it: a one-line
+ *  question answered for 25 s is a ramble; an explanation gets 90 s. */
+const RAMBLE_MS = { short: 25_000, long: 90_000 } as const;
 const ANSWER_BY_KEY = "m20.answerBy";
 
 /** The clock a spoken turn's times are on (Core's ledger clock, `nowMs`, not
@@ -187,7 +191,20 @@ function Room({ state }: { state: VivaState }) {
     [answer],
   );
 
+  // ── A ramble, stopped ─────────────────────────────────────────────────
+  // A real examiner cuts in when a one-line answer turns into a speech. The
+  // room times the talking; past the limit it ends the turn with what was
+  // said (Core's `flush`), and the examiner says "let me stop you there"
+  // before answering it (the server, from `cut_in`).
+  const talkingSince = useRef<number | null>(null);
+  const cutIn = useRef(false);
+  const flushTurn = useRef<() => void>(() => undefined);
+  const limit = RAMBLE_MS[state.open?.answer_length === "short" ? "short" : "long"];
+
   const onTurn = (turn: SpokenTurn) => {
+    const wasCut = cutIn.current;
+    talkingSince.current = null;
+    cutIn.current = false;
     const said = turn.text?.trim();
     if (!said) {
       setHeardNote("I didn't catch that — say it again, or type it.");
@@ -198,6 +215,7 @@ function Room({ state }: { state: VivaState }) {
       spoken: true,
       duration_ms: Math.max(0, turn.endedAt - turn.startedAt),
       silence_ms: from ? Math.max(0, turn.startedAt - from) : undefined,
+      cut_in: wasCut || undefined,
     });
   };
 
@@ -208,8 +226,29 @@ function Room({ state }: { state: VivaState }) {
     enabled: byVoice && live && !busy && !speaking,
     playing: voice.isSpeaking,
     context: () => current?.text ?? null,
+    onSpeechStart: (at) => {
+      if (talkingSince.current === null) talkingSince.current = at;
+    },
     onTurn,
   });
+  flushTurn.current = listening.flush;
+
+  useEffect(() => {
+    talkingSince.current = null;
+    cutIn.current = false;
+  }, [current?.seq]);
+
+  useEffect(() => {
+    if (!byVoice || !live) return;
+    const timer = window.setInterval(() => {
+      const since = talkingSince.current;
+      if (since !== null && !cutIn.current && nowMs() - since > limit) {
+        cutIn.current = true;
+        flushTurn.current();
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [byVoice, live, limit]);
 
   const latest = state.turns[state.turns.length - 1];
   const progress = state.open?.kind === "warmup" ? 0 : Math.min(state.open?.item ?? state.asked, state.target);

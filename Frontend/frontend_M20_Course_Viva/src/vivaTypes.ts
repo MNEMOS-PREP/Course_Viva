@@ -118,6 +118,7 @@ export type TurnKind =
   | "teach"
   | "ack"
   | "close"
+  | "cut_in"
   | "answer";
 
 export interface VivaTurn {
@@ -181,6 +182,16 @@ export interface Sounded {
   wpm: number | null;
   spoken_answers: number;
   unfinished: number;
+  /** "I think", "maybe", "probably", "I'm not sure". */
+  hedges: number;
+  hedges_per_100: number | null;
+  /** Of the answers that said something, the share that opened with the answer. */
+  direct_share: number | null;
+  words_per_sentence: number | null;
+  /** Sentences that ran on past 35 words. */
+  run_on: number;
+  /** Answers the examiner cut short: they ran on past what was asked. */
+  cut_in: number;
 }
 
 export interface ReportItem {
@@ -218,6 +229,8 @@ export interface VivaReport {
     retry_of: string | null;
     /** Questions not right first time: what a second go would ask. */
     missed: number;
+    /** What reached the skill graph (FR-20.20), or why nothing did. */
+    skill_graph: { sent: number; concepts?: string[]; why?: string; retry?: boolean } | null;
     status: "live" | "ended";
     end_reason: string | null;
     target: number;
@@ -284,6 +297,8 @@ export interface AnswerTiming {
   silence_ms?: number;
   duration_ms?: number;
   spoken?: boolean;
+  /** The room stopped listening: the answer ran on past what it needed. */
+  cut_in?: boolean;
 }
 
 /** A question in the bank, as the placement cell reviews it
@@ -316,4 +331,57 @@ export interface MaterialBank {
   /** Banked pages that gave no question, and why. */
   skipped: { page: number; why: string }[];
   questions: BankQuestion[];
+}
+
+/** One measure of the student's progress (progress.py `MEASURES`). */
+export interface ProgressMeasure {
+  key: string;
+  label: string;
+  group: "answering" | "framing" | "speaking";
+  unit: "share" | "per100" | "ms" | "wpm" | "words";
+  /** Which way is better; "band": inside [good, good_high]. */
+  better: "higher" | "lower" | "band";
+  good: number;
+  fair: number;
+  good_high: number | null;
+  fair_high: number | null;
+  /** What it is, in a line; and what to do when it is worth work. */
+  means: string;
+  tip: string;
+  /** Over the last three vivas; and the first three, once there are more. */
+  now: number | null;
+  first: number | null;
+  band: "good" | "fair" | "work" | null;
+  direction: "better" | "worse" | "steady" | null;
+  /** One value per viva, oldest first (null: not measured in that one). */
+  series: (number | null)[];
+}
+
+export interface ProgressGroup {
+  key: string;
+  label: string;
+  asked: number;
+  right: number;
+  share: number;
+}
+
+export interface ProgressNote {
+  kind: "measure" | "questions";
+  key: string;
+  text: string;
+  tip?: string;
+}
+
+/** GET /v1/vivas/progress */
+export interface VivaProgress {
+  vivas: number;
+  answers: number;
+  series: { id: string; date: string; label: string; course: string | null; answered: number }[];
+  measures: ProgressMeasure[];
+  by_length: ProgressGroup[];
+  by_family: ProgressGroup[];
+  strengths: ProgressNote[];
+  work_on: ProgressNote[];
+  /** Not measured yet: said, never drawn as a zero. */
+  visual: { measured: boolean; planned: string[]; note: string };
 }

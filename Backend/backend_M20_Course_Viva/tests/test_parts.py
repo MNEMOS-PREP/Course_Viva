@@ -293,3 +293,34 @@ def test_a_part_that_runs_out_of_questions_still_offers_the_next(client, engine,
     close = state["turns"][-1]["text"]
     assert close.startswith("That's everything") and "pages 11 to 20" in close
     assert state["end_reason"] == "complete" and state["next_part"]["first"] == 11
+
+
+def test_a_part_is_banked_knowing_the_page_before_it_but_never_quoting_it(session):
+    """Overlapping windows (2026-10-28 research): pages 11-20 are sent with
+    page 10 as context, so "Step 2" knows step 1 — and a quote from page 10
+    is not page 11's."""
+
+    class QuotesThePageBefore(StubLLM):
+        def structured(self, **kw):
+            result = super().structured(**kw)
+            if kw["job"] == "viva_bank" and "<<<BEFORE" in kw["user"]:
+                result.data["questions"].append(
+                    {**result.data["questions"][0], "question": "What does rule 10 decide?",
+                     "quote": slide(10), "page": 11}
+                )  # fmt: skip
+            return result
+
+    model = QuotesThePageBefore()
+    material = _material(session)
+    bank.ensure(session, material.id, 11, llm=model)
+    prompt = next(c["user"] for c in model.calls if c["job"] == "viva_bank")
+    assert "<<<BEFORE (page 10, context only)" in prompt and "rule 10 decides" in prompt
+    assert sorted(pages_of(prompt)) == [11, 13, 14, 15, 16, 18, 19, 20], "page 10 is not a page to ask"
+    asked = bank.asked_from(session, [(material.id, p) for p in range(11, 21)])
+    assert all("rule 10" not in q.quote for q in asked)
+
+
+def test_the_first_part_has_no_page_before(session, model):
+    material = _material(session)
+    bank.ensure(session, material.id, 1, llm=model)
+    assert all("<<<BEFORE" not in c["user"] for c in model.calls if c["job"] == "viva_bank")

@@ -10,4 +10,5 @@ export const M20_NAV: NavItem[] = [
   { to: "/library/search", label: "Search" },
   { to: "/library/coverage", label: "Coverage" },
   { to: "/viva", label: "My vivas" },
+  { to: "/viva/progress", label: "Progress" },
 ];

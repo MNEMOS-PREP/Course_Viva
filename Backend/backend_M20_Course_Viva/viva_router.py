@@ -14,7 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from . import bank, db, reading, viva
+from . import bank, db, progress, reading, skill_graph, viva
 from .db import get_session
 from .library import Viewer, visible
 from .models import Material, MaterialPage, Question, Viva
@@ -34,6 +34,13 @@ def _prefetch(viva_id: str) -> None:
     after the response is sent."""
     with Session(db.engine) as session:
         viva.prefetch(session, viva_id)
+
+
+def _to_skill_graph(viva_id: str) -> None:
+    """An ended viva's results to M04, behind consent (FR-20.20) — after the
+    response, in its own session; M04 being down narrows nothing here."""
+    with Session(db.engine) as session:
+        skill_graph.send(session, viva_id)
 
 
 def _own(session: Session, viva_id: str, viewer: Viewer) -> Viva:
@@ -152,6 +159,14 @@ def mine(db_session: SessionDep, request: Request) -> list[dict]:
     return viva.history(db_session, viewer.subject)
 
 
+@router.get("/progress")
+def my_progress(db_session: SessionDep, request: Request) -> dict:
+    """The student's progress over their vivas: each measure now, at first,
+    its band and its way; strengths and what to work on (progress.py)."""
+    viewer = signed_in(request, VIVA_SIGN_IN)
+    return progress.progress(db_session, viewer.subject)
+
+
 @router.get("/{viva_id}")
 def get(viva_id: str, db_session: SessionDep, request: Request) -> dict:
     return viva.state(db_session, _own(db_session, viva_id, signed_in(request, VIVA_SIGN_IN)))
@@ -179,6 +194,8 @@ def answer(
         except viva.VivaError as error:
             raise _fail(error) from error
     background.add_task(_prefetch, row.id)
+    if row.status == "ended":
+        background.add_task(_to_skill_graph, row.id)
     return viva.state(db_session, row)
 
 
@@ -195,17 +212,26 @@ def hint(viva_id: str, db_session: SessionDep, request: Request) -> dict:
 
 
 @router.post("/{viva_id}/end")
-def end(viva_id: str, db_session: SessionDep, request: Request) -> dict:
+def end(
+    viva_id: str, background: BackgroundTasks, db_session: SessionDep, request: Request
+) -> dict:
     row = _own(db_session, viva_id, signed_in(request, VIVA_SIGN_IN))
     with viva.lock(viva_id):
         db_session.refresh(row)
         row = viva.end(db_session, row)
+    background.add_task(_to_skill_graph, row.id)
     return viva.state(db_session, row)
 
 
 @router.get("/{viva_id}/report")
-def report(viva_id: str, db_session: SessionDep, request: Request) -> dict:
-    return viva.report(db_session, _own(db_session, viva_id, signed_in(request, VIVA_SIGN_IN)))
+def report(
+    viva_id: str, background: BackgroundTasks, db_session: SessionDep, request: Request
+) -> dict:
+    row = _own(db_session, viva_id, signed_in(request, VIVA_SIGN_IN))
+    if row.status == "ended" and ((row.scope or {}).get("skill_graph") or {}).get("retry", True):
+        # Not sent yet, or M04 was down: tried again when the report is read.
+        background.add_task(_to_skill_graph, row.id)
+    return viva.report(db_session, row)
 
 
 # ── The bank, reviewable (FR-20.14) ─────────────────────────────────────────

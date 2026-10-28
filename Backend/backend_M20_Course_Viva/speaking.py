@@ -12,6 +12,12 @@ they need to see is the speaking get easier. So per answer:
   pace         words per minute, spoken answers only — typing speed is not
                speaking speed, and saying so beats a misleading number
   unfinished   an answer that stops mid-thought ("…and then the", "so")
+  hedges       "I think", "maybe", "probably", "I'm not sure" — the answer said
+               less surely than it might be (2026-10-29; no module had a list:
+               this is it, and M06's delivery notes can take it from here)
+  framing      how the answer is put together: does it open with the answer or
+               with "um, so, well…"; its sentences and their length; a sentence
+               that runs on; reasons given ("because", "so that", "which means")
 
 All of it is counted, not judged by a model.
 """
@@ -39,6 +45,24 @@ _DANGLING = frozenset(
     "and or but so because the a an of to with which that then if when is are was were "
     "like um uh".split()
 )
+#: Saying less surely than one might. Not "kind of" / "sort of": those are
+#: M06's fillers, and a word is counted once.
+_HEDGES = (
+    "i think", "i guess", "i believe", "i feel", "i suppose", "maybe", "perhaps",
+    "probably", "possibly", "i'm not sure", "i am not sure", "not sure", "might be",
+    "could be", "i don't know if", "if i remember", "if i'm right",
+)  # fmt: skip
+#: Giving a reason: what an explanation is made of.
+_REASONS = (
+    "because", "since", "so that", "therefore", "hence", "which means", "that means",
+    "as a result", "due to", "that's why", "this is why", "in order to", "so it",
+)  # fmt: skip
+#: Openings that warm up instead of answering.
+_WARM_UP = frozenset({"um", "umm", "uh", "uhh", "uhm", "er", "erm", "ah", "hmm", "so", "well",
+                      "okay", "ok", "like", "basically", "actually", "yeah", "right"})  # fmt: skip
+#: A sentence longer than this runs on: the listener has lost its start.
+RUN_ON_WORDS = 35
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 #: Below this a spoken answer is too short to have a pace.
 MIN_PACE_MS = 2000
 #: Vivas the trend is read over.
@@ -57,6 +81,29 @@ def fillers_in(text: str) -> dict[str, int]:
         counts[phrase] += len(re.findall(rf"\b{phrase}\b", lowered))
     counts["like"] += len(_LIKE_FILLER.findall(text))
     return {k: v for k, v in counts.items() if v}
+
+
+def hedges_in(text: str) -> int:
+    lowered = f" {text.lower()} "
+    return sum(len(re.findall(rf"(?<![a-z']){re.escape(h)}(?![a-z'])", lowered)) for h in _HEDGES)
+
+
+def framing(text: str) -> dict[str, Any]:
+    """How an answer is put together, counted from its words."""
+    words = _WORD.findall(text.lower())
+    sentences = [s for s in _SENTENCE_END.split(text.strip()) if _WORD.search(s.lower())]
+    lengths = [len(_WORD.findall(s.lower())) for s in sentences]
+    lowered = f" {text.lower()} "
+    return {
+        # Opens with the answer, not with "um, so, well…".
+        "direct": bool(words) and words[0] not in _WARM_UP,
+        "sentences": len(sentences),
+        "words_per_sentence": round(sum(lengths) / len(lengths), 1) if lengths else None,
+        "run_on": sum(1 for n in lengths if n > RUN_ON_WORDS),
+        "reasons": sum(
+            len(re.findall(rf"(?<![a-z']){re.escape(r)}(?![a-z'])", lowered)) for r in _REASONS
+        ),
+    }
 
 
 def unfinished(text: str) -> bool:
@@ -84,10 +131,14 @@ def measure(text: str, timing: dict[str, Any] | None) -> dict[str, Any]:
         "words": words,
         "fillers": fillers,
         "filler_count": sum(fillers.values()),
+        "hedges": hedges_in(text),
+        "framing": framing(text),
         "silence_ms": int(silence) if isinstance(silence, (int, float)) and silence >= 0 else None,
         "wpm": pace,
         "spoken": spoken,
         "unfinished": unfinished(text),
+        # Stopped by the examiner: it went on past what the question needed.
+        "cut_in": bool(timing.get("cut_in")),
     }
 
 
@@ -104,6 +155,10 @@ def summary(measures: list[dict[str, Any]]) -> dict[str, Any]:
         by_kind.update(m["fillers"])
     silences = [m["silence_ms"] for m in measures if m["silence_ms"] is not None]
     paces = [m["wpm"] for m in measures if m["wpm"] is not None]
+    said = [m for m in measures if m["words"]]
+    hedges = sum(m.get("hedges", 0) for m in measures)
+    framed = [m["framing"] for m in said if m.get("framing")]
+    sentence_lengths = [f["words_per_sentence"] for f in framed if f["words_per_sentence"]]
     return {
         "answers": len(measures),
         "words": words,
@@ -117,6 +172,15 @@ def summary(measures: list[dict[str, Any]]) -> dict[str, Any]:
         "wpm": _mean(paces),
         "spoken_answers": sum(1 for m in measures if m["spoken"]),
         "unfinished": sum(1 for m in measures if m["unfinished"]),
+        "hedges": hedges,
+        "hedges_per_100": round(100 * hedges / words, 1) if words else None,
+        # Of the answers that said something, the share that opened with the answer.
+        "direct_share": round(sum(1 for f in framed if f["direct"]) / len(framed), 2)
+        if framed
+        else None,
+        "words_per_sentence": _mean(sentence_lengths),
+        "run_on": sum(f["run_on"] for f in framed),
+        "cut_in": sum(1 for m in measures if m.get("cut_in")),
     }
 
 

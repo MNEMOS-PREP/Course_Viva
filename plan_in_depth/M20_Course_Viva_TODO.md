@@ -1,6 +1,6 @@
 # M20 — TODO · Course Viva (Course Library + General Viva Practice)
 
-> **Completion: 88%** — 17 of 21 functional requirements met, 3 partly (2026-10-28, evening: a long document ten pages at a time with no page lost, lab viva mode, the bank's review screen, and Library + Viva in the platform shell). Spec: [M20_Course_Viva.md](M20_Course_Viva.md).
+> **Completion: 93%** — 18 of 21 functional requirements met, 3 partly (2026-10-29: a progress tracker, results to the skill graph behind consent, pictures read by a vision model). Spec: [M20_Course_Viva.md](M20_Course_Viva.md).
 >
 > _Method: `(met + ½ × partial) ÷ total`, counted from the spec — the same measure as every other module._
 
@@ -18,6 +18,49 @@ Task list for taking **M20 — Course Viva** to 100% of [M20_Course_Viva.md](M20
 Legend: ✅ done · 🟡 partly done · ⬜ not started
 
 ---
+
+### 2026-10-29 (later) — a progress tracker, and the four left over
+
+The user: "a progress tracker of verbal skills — visual skills marked for
+later — accuracy of answers, fillers and other small metrics that let a
+student reflect … only when they see their progress bar and strengths and
+weaknesses can they improve … account for sentence framing", and the four
+left from the research.
+
+- ✅ **Your progress (`/viva/progress`, "Viva progress" in the shell).** Every
+  measure the vivas already take, together: right first time (the hero
+  figure), long answers that give a reason, answers in the course's own words,
+  answers that start with the answer, words per sentence; fillers and
+  hesitations per 100 words, the wait before answering, pace, answers left
+  unfinished. Each is shown now (its last three vivas that measured it) against
+  where it started, in a band (good / fair / worth work, with a label, never
+  colour alone), with a line over the vivas and a tip when it is worth work;
+  strengths and what to work on; right first time by kind of question; every
+  number in a table. **Visual skills** (eye contact, posture, gestures, facial
+  expression) are listed as not measured yet — the camera is M12's.
+- ✅ **Hesitations** ("I think", "maybe", "probably", "I'm not sure") and
+  **framing** (opens with the answer or with "um, so, well…"; sentences and
+  their length; run-on sentences; reasons given) counted per answer, in the
+  report's "How you sounded" too. The hedge list is new — no module had one.
+- ✅ **The examiner cuts in on a ramble:** a one-line question answered for
+  25 s (an explanation, 90 s) — the room ends the turn with what was said
+  and the examiner says "let me stop you there", then answers it; the report
+  counts the answers cut short.
+- ✅ **The page before each part as context** (overlapping windows): page 10
+  goes with pages 11–20 so "Step 2" knows step 1, and is never quoted.
+- ✅ **Results to the skill graph behind consent (FR-20.20):** when a viva
+  ends, a platform student's practice consent is read from M04; with it, their
+  answers become an M04 artifact and each concept the questions were on (found
+  by M04's own names and aliases) an `answer_scored` observation, plus
+  `concept:answer_structuring` from the framing — GD Arena's path. Without
+  consent, or for a question no concept matches, nothing is sent and the
+  report says why; M04 down is tried again when the report is read.
+- **Found and fixed:** a measure taken many times read "not measured yet"
+  after three typed vivas (now read over the vivas that measured it); a 9.3 →
+  9.2 change read "worse" (under 5% is "steady"); the strengths text showed
+  0.867.
+- **Tests:** 232 backend (207 → 232); typecheck and build clean; the progress
+  page walked headless on the dev data.
 
 ### 2026-10-29 — pictures read, and "Upload a PDF" on the viva panel
 
@@ -296,13 +339,9 @@ silently dropped.
    imports it, then times one semester's folder (AC-20.7). The viva needs
    material: today a test lab (23CSE214, Lab 6) and the user's 59-page RL
    deck (25AID301, private to the dev student, its pictures read).
-4. **Left from the product research:** hedges ("I think", "maybe") among the
-   speaking measures — no module has a list to take them from yet (M06's
-   speech analysis counts fillers, not hedges); the page before a part sent
-   as context (overlapping windows) — one more page of tokens a call; the
-   examiner cutting in when a one-line question gets a long ramble (needs the
-   room to stop listening mid-answer).
-5. **Results to M04 behind consent (FR-20.20).**
+4. **Visual skills on the progress page** — eye contact, posture, gestures,
+   facial expression — once the multimodal suite (M12) measures them; the
+   page lists them as not measured until then.
 
 ## 1. The plan (project manager's view)
 
@@ -347,7 +386,7 @@ silently dropped.
 | FR-20.17 | ✅ Speaking measures: pace, fillers, silences, answer length, unfinished answers — *pace and silences from spoken answers' timings (the wait counted from the end of the question); typed answers say pace is not measured* | P0 |
 | FR-20.18 | ✅ Report: knew / reread (page-cited) / how you sounded, with trend | P0 |
 | FR-20.19 | ✅ Lab viva mode — *principle → procedure → observations → result → precautions → sources of error, the aim as the warm-up* | P1 |
-| FR-20.20 | ⬜ Results to M04 behind consent | P1 |
+| FR-20.20 | ✅ Results to M04 behind consent — *`answer_scored` per concept by M04's own aliases, `answer_structuring` from framing; nothing without consent, and the report says why* | P1 |
 | FR-20.21 | ✅ Platform sign-in and shell entries — *"Viva practice" and "Course library" in Platform_Shell, on the platform's session* | P0 |
 
 ## 3. Acceptance gates

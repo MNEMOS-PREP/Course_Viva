@@ -14,6 +14,7 @@ import type {
   BankQuestion,
   MaterialBank,
   StartVivaInput,
+  VivaProgress,
   VivaReport,
   VivaScope,
   VivaState,
@@ -30,6 +31,7 @@ export const vivaKeys = {
   state: (id: string) => ["m20", "viva", "state", id] as const,
   report: (id: string) => ["m20", "viva", "report", id] as const,
   mine: ["m20", "viva", "mine"] as const,
+  progress: ["m20", "viva", "progress"] as const,
   bank: (materialId: string, retired: boolean) => ["m20", "viva", "bank", materialId, retired] as const,
 };
 
@@ -73,6 +75,7 @@ function useStep<T>(id: string, step: (input: T) => Promise<VivaState>) {
         // A part done, and the next one banked meanwhile: the start panel's
         // "done" and "ready" have changed.
         client.invalidateQueries({ queryKey: vivaKeys.scopes });
+        client.invalidateQueries({ queryKey: vivaKeys.progress });
       }
     },
   });
@@ -118,5 +121,13 @@ export function useReviewQuestion(materialId: string) {
     mutationFn: (input: { id: string; status: BankQuestion["status"] }) =>
       api.post<BankQuestion>(`${V}/bank/questions/${seg(input.id)}`, { status: input.status }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["m20", "viva", "bank", materialId] }),
+  });
+}
+
+/** The student's progress over their vivas (progress.py). */
+export function useVivaProgress() {
+  return useQuery({
+    queryKey: vivaKeys.progress,
+    queryFn: () => api.get<VivaProgress>(`${V}/progress`),
   });
 }

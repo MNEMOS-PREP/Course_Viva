@@ -542,3 +542,19 @@ def test_a_draft_the_bank_replaced_is_superseded_and_not_in_the_review_list(clie
         f"/v1/vivas/bank/{material['id']}", params={"retired": True}, headers=as_curator()
     ).json()
     assert {q["status"] for q in every["questions"]} == {"draft"}
+
+
+def test_a_ramble_the_room_cut_short_is_stopped_then_answered(client, model):
+    """The room stops listening when a one-line question is answered at length;
+    the examiner says so, then answers what was said (realism: interruptions)."""
+    _upload(client)
+    state = _start(client).json()
+    state = _say(client, state["id"], "To compare FIFO and LRU.")
+    state = _say(client, state["id"], "A page is evicted when memory is full and so on",
+                 spoken=True, duration_ms=26000, cut_in=True)  # fmt: skip
+    kinds = [t["kind"] for t in state["turns"]]
+    stop = kinds.index("cut_in")
+    assert kinds[stop - 1] == "answer" and kinds[stop + 1] in ("ack", "follow_up", "hint")
+    assert "stop you there" in state["turns"][stop]["text"]
+    report = client.get(f"/v1/vivas/{state['id']}/report", headers=ME).json()
+    assert report["sounded"]["cut_in"] == 1

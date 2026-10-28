@@ -4,7 +4,7 @@
 
 import { Link } from "react-router-dom";
 
-import { EmptyState, ErrorNote, PageHeader, SkeletonRows } from "@ai/core";
+import { EmptyState, ErrorNote, Icon, PageHeader, SkeletonRows } from "@ai/core";
 
 import { Pill, ROOT } from "../ui/bits";
 import { useMyVivas } from "../vivaApi";
@@ -17,6 +17,15 @@ export function MyVivas() {
       <PageHeader
         title="Your vivas"
         subtitle="Practice vivas on your course material, and what each one showed."
+        actions={
+          <Link
+            to="/viva/progress"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3.5 text-sm font-medium text-ink hover:border-line-strong"
+          >
+            <Icon name="chart" size={14} />
+            Your progress
+          </Link>
+        }
       />
       {vivas.isPending ? (
         <SkeletonRows label="Loading your vivas" rows={4} />

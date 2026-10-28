@@ -145,6 +145,13 @@ function ReportView({ report }: { report: Report }) {
         {report.items.map((item) => (
           <ItemCard key={item.item} item={item} />
         ))}
+        {v.skill_graph && (
+          <p className="text-xs text-ink-faint">
+            {v.skill_graph.sent > 0
+              ? `Added to your skill graph: ${v.skill_graph.sent} ${v.skill_graph.sent === 1 ? "entry" : "entries"}, with your answers as the evidence.`
+              : `Not added to your skill graph: ${v.skill_graph.why}.`}
+          </p>
+        )}
         {report.marked_by_rules && (
           <p className="text-xs text-ink-faint">
             Some answers were marked by matching their words to the page, because the marking model
@@ -278,6 +285,16 @@ function Sounded({ report }: { report: Report }) {
         <Stat value={s.long_silences} label="waits of 8 s or more" />
         <Stat value={s.unfinished} label={s.unfinished === 1 ? "answer left unfinished" : "answers left unfinished"} />
         <Stat value={s.words_per_answer ?? "—"} label="words per answer" />
+        <Stat value={s.hedges_per_100 ?? "—"} label="hesitations per 100 words" note={'"I think", "maybe", "probably"'} />
+        <Stat
+          value={s.direct_share === null ? "—" : `${Math.round(s.direct_share * 100)}%`}
+          label="answers that start with the answer"
+          note='not "um, so, well…"'
+        />
+        <Stat value={s.words_per_sentence ?? "—"} label="words per sentence" note={s.run_on ? `${s.run_on} ran on past 35 words` : undefined} />
+        {s.cut_in > 0 && (
+          <Stat value={s.cut_in} label={s.cut_in === 1 ? "answer the examiner cut short" : "answers the examiner cut short"} note="a one-line question answered at length" />
+        )}
         <Stat
           value={s.wpm ?? "—"}
           label="words per minute"

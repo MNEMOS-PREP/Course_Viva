@@ -631,6 +631,8 @@ _CONNECT = ["Next: ", "Now, ", "Moving on. ", "Alright. "]
 _PARTIAL = ["That's part of it. ", "Partly. ", "Okay — and ", "Some of it. "]
 _WRONG = ["Not quite. ", "That's not right. ", "No, not quite. "]
 _BLANK = ["Take a moment. ", "That's alright. ", "Think about it for a second. "]
+#: Said when the room stops a long answer to a one-line question.
+_CUT_IN = ["Let me stop you there.", "Okay — let me stop you there.", "I'll stop you there."]
 
 
 #: The lead of a deeper question on what was just answered: "Right. And why…".
@@ -910,6 +912,9 @@ def _clean_timing(timing: dict | None) -> dict | None:
         if isinstance(value, (int, float)) and 0 <= value <= 30 * 60 * 1000:
             out[key] = int(value)
     out["spoken"] = bool(timing.get("spoken"))
+    if timing.get("cut_in"):
+        # The room stopped listening: a one-line question answered at length.
+        out["cut_in"] = True
     return out
 
 
@@ -939,6 +944,18 @@ def answer(
         question_id=state.get("question_id"),
         timing=_clean_timing(timing),
     )
+    if turn.timing and turn.timing.get("cut_in"):
+        # An examiner stops a ramble, then answers what was said — the way a
+        # real one does (the user's "interruptions"; realism is the goal).
+        _say(
+            session,
+            viva,
+            "examiner",
+            "cut_in",
+            _pick(viva, _CUT_IN, turn.seq),
+            item,
+            question_id=state.get("question_id"),
+        )
 
     if state["kind"] == "warmup" or question is None or marked is None:
         _say(
@@ -1237,6 +1254,8 @@ def report(session: Session, viva: Viva) -> dict[str, Any]:
             "mode": viva.mode,
             "style": style_of(viva),
             "retry_of": (viva.scope or {}).get("retry_of"),
+            # What reached the skill graph (FR-20.20), or why nothing did.
+            "skill_graph": (viva.scope or {}).get("skill_graph"),
             # What a second go would ask: the questions not right first time.
             "missed": len(missed_in(session, viva)) if viva.status == "ended" else 0,
             "status": viva.status,
