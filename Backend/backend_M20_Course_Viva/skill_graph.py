@@ -107,19 +107,29 @@ def concepts() -> list[dict[str, Any]]:
     return _concepts
 
 
+def _said(name: str, text: str, words: set[str]) -> bool:
+    """A concept's name in the text: whole, or — for a name of several words
+    — every word of it there, by its first five letters ("fifo page
+    replacement" in "What does FIFO replace? … the page …")."""
+    if re.search(rf"(?<![a-z0-9]){re.escape(name)}(?![a-z0-9])", text):
+        return True
+    parts = name.split()
+    return len(parts) > 1 and all(part[:5] in words for part in parts)
+
+
 def concept_for(question: Question, known: list[dict[str, Any]]) -> str | None:
     """The concept a question is on: the most of its names said in the
-    question, its quote and its points; the longest name breaks a tie."""
+    question, its quote and its points; the longest name breaks a tie, so a
+    specific name beats a short one two concepts share (live, 2026-10-29:
+    "What does FIFO replace?" went to queues — "fifo" is a queue's alias —
+    when page replacement names "fifo page replacement")."""
     text = " ".join(
         [question.text, question.quote, *(p["point"] for p in question.answer_points)]
     ).casefold()
+    words = {w[:5] for w in re.findall(r"[a-z0-9']+", text)}
     best: tuple[int, int, str] | None = None
     for concept in known:
-        hits = [
-            n
-            for n in concept["names"]
-            if re.search(rf"(?<![a-z0-9]){re.escape(n)}(?![a-z0-9])", text)
-        ]
+        hits = [n for n in concept["names"] if _said(n, text, words)]
         if hits:
             score = (len(hits), max(len(h) for h in hits), concept["id"])
             if best is None or score[:2] > best[:2]:

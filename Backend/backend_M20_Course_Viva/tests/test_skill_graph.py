@@ -155,3 +155,25 @@ def test_a_question_is_on_the_concept_its_words_name():
     )
     assert skill_graph.concept_for(Q("When does a deadlock occur?"), names) == "concept:deadlocks"
     assert skill_graph.concept_for(Q("What is the TD error?"), names) is None
+
+
+def test_a_specific_name_beats_a_short_one_two_concepts_share():
+    """Live: "What does FIFO replace?" went to queues ("fifo" is a queue's
+    alias) — page replacement names "fifo page replacement", all there."""
+
+    class Q:
+        def __init__(self, text, quote):
+            self.text, self.quote, self.answer_points = text, quote, []
+
+    known = [
+        {"id": "concept:queues", "names": ["circular queue", "queue", "fifo"]},
+        {"id": "concept:page_replacement",
+         "names": ["optimal page replacement", "fifo page replacement", "page replacement"]},
+    ]  # fmt: skip
+    question = Q(
+        "What does FIFO replace?", "FIFO replaces the page that has been in memory the longest."
+    )
+    assert skill_graph.concept_for(question, known) == "concept:page_replacement"
+    assert skill_graph.concept_for(
+        Q("What is a circular queue?", "A circular queue wraps."), known
+    ) == ("concept:queues")
