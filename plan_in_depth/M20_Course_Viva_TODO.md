@@ -243,11 +243,32 @@ silently dropped.
    imports it, then times one semester's folder (AC-20.7). The viva needs
    material with text: today a test lab (23CSE214, Lab 6) and the user's
    59-page RL deck (25AID301, private to the dev student) are what there is.
-4. **Pictures with no text.** 13 of that deck's 59 slides are images —
-   diagrams, the TD update drawn as a figure, the numerical example — and the
-   viva can only name them. OCR, or a vision model reading the slide, is the
-   open decision 3 below.
-5. **From the product research (2026-10-28):** after a right short answer,
+4. **Read the pictures (the user, 2026-10-28: "add OCR or a vision model,
+   whichever does well").** 13 of the RL deck's 59 slides are images —
+   diagrams, the TD update drawn as a figure, the numerical example (pages 5,
+   6, 19, 22, 30–36, 57, 58) — and the viva can only name them. A scanned lab
+   manual (EC-20.5) is the same problem for every page.
+   - *Found so far:* our Groq key lists no vision model (no Llama 4
+     Scout/Maverick; `qwen/qwen3.8-27b` is there, untested on images), and
+     Tesseract is not installed on the dev machine.
+   - *Plan:* render each picture page (PyMuPDF, ~110 dpi) and try both on the
+     13 slides — RapidOCR (CPU, pip, no service) and a vision model (another
+     provider's, or Groq's if one is enabled) asked to transcribe exactly what
+     is written, equations in plain letters, and say in at most three
+     sentences what a diagram shows, marked "Figure:", adding nothing not
+     visible. Keep whichever reads better; say which in this file.
+   - *Where:* a part's picture pages are read just before the part is banked
+     (in the background, while the student answers the part before), once,
+     for everyone: the text goes into the page with how it was read
+     (`read_by`), the bank and search use it, and the report and the review
+     screen say "read from the slide's picture". The quote check still holds
+     — against what was read.
+5. **"Upload a PDF" on the viva panel (the user, 2026-10-28).** Today a
+   student adds material in the course page's "Add material" box and then
+   picks it in "Practise a viva". The panel gets its own button: choose a PDF,
+   it is added to the course as "only you" (no permission needed), and the
+   panel selects it — its first ten pages, if it is long — ready to start.
+6. **From the product research (2026-10-28):** after a right short answer,
    the "why" question on the same passage (Sherpa probes a strong answer
    deeper); "practise what you missed" — a viva on the questions got wrong
    (NotebookLM reruns missed cards); a near-duplicate check in the bank (the
@@ -255,7 +276,7 @@ silently dropped.
    slide-deck question paper); the topics of each part on the start panel;
    hedges ("I think", "maybe") among the speaking measures; the examiner
    cutting in when a one-line question gets a long ramble.
-6. **Results to M04 behind consent (FR-20.20).**
+7. **Results to M04 behind consent (FR-20.20).**
 
 ## 1. The plan (project manager's view)
 
@@ -331,6 +352,6 @@ Spec §9.
 
 1. Scope beyond B.Tech + AI (M.Tech, B.Sc., …)?
 2. Campuses beyond the five (Nagercoil, Haridwar, Faridabad also run B.Tech)?
-3. OCR for scanned lab manuals — and for slides that are only a picture (13 of 59 in the RL deck)? A vision model on Groq could read a slide's image; it is a model call per picture.
+3. ~~OCR for scanned lab manuals and picture slides?~~ **Decided 2026-10-28: yes — OCR or a vision model, whichever reads better** (Next 4).
 4. Who may upload — students, or faculty and class representatives only?
 5. Pre-2019 curricula (two-PDF layout): parse, or link only?
