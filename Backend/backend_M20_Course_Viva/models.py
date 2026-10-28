@@ -167,7 +167,7 @@ class Question(SQLModel, table=True):
     #: short: one fact in a line (a term, a value, a name) · long: explained in
     #: a few sentences (why, how, the steps, a comparison). A viva asks both.
     answer_length: str = "long"
-    status: str = "draft"  # draft | reviewed | retired
+    status: str = "draft"  # draft | reviewed | retired (by a person) | superseded (re-banked)
     generated_by: str = ""
     prompt_version: str = ""
     created_at: datetime = Field(default_factory=_now)

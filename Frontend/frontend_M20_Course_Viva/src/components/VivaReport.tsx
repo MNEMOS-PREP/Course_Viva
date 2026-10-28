@@ -167,6 +167,7 @@ function Coverage({ report }: { report: Report }) {
   const c = report.coverage!;
   const v = report.viva;
   const pictures = c.picture_pages;
+  const titles = c.title_pages;
   return (
     <section aria-labelledby="coverage" className="rounded-xl border border-line bg-surface p-5">
       <h2 id="coverage" className="font-semibold text-ink">
@@ -176,10 +177,16 @@ function Coverage({ report }: { report: Report }) {
         {c.asked_from.length
           ? `The questions came from ${c.asked_from.length === 1 ? "page" : "pages"} ${listed(c.asked_from)}.`
           : "No question was asked from these pages."}{" "}
+        {titles.length > 0 &&
+          `${titles.length === 1 ? "Page" : "Pages"} ${listed(titles)} ${
+            titles.length === 1 ? "is a title" : "are titles"
+          }. `}
         {pictures.length > 0 &&
           `${pictures.length === 1 ? "Page" : "Pages"} ${listed(pictures)} ${
-            pictures.length === 1 ? "is a picture or a title" : "are pictures or titles"
-          } — there is no text to ask from, so look at ${pictures.length === 1 ? "it" : "them"} yourself.`}
+            pictures.length === 1 ? "is a picture" : "are pictures"
+          } with no text to ask from — a diagram or an equation drawn as an image — so look at ${
+            pictures.length === 1 ? "it" : "them"
+          } yourself.`}
       </p>
       {report.next_part && v.course && v.status === "ended" && (
         <NextPart

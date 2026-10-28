@@ -7,7 +7,7 @@
  */
 
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 
 import { EmptyState, ErrorNote, Icon, PageHeader, SkeletonRows, isStaff, useSession } from "@ai/core";
 
@@ -148,6 +148,7 @@ function MaterialRow({ material: m }: { material: Material }) {
   const approve = useApprove();
   const [reading, setReading] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
+  const location = useLocation();
 
   return (
     <li className="px-5 py-3.5">
@@ -202,6 +203,15 @@ function MaterialRow({ material: m }: { material: Material }) {
             <button type="button" onClick={() => setReading(!reading)} className="text-ink-soft hover:text-ink" aria-expanded={reading}>
               {reading ? "Hide text" : "Read text"}
             </button>
+          )}
+          {staff && m.text_status === "ok" && (
+            <Link
+              to={`/library/questions/${encodeURIComponent(m.id)}`}
+              state={{ from: location.pathname }}
+              className="text-ink-soft hover:text-ink"
+            >
+              Viva questions
+            </Link>
           )}
           {staff && m.visibility === "held" && (
             <button type="button" onClick={() => approve.mutate(m.id)} disabled={approve.isPending} className="font-medium text-confirmed hover:underline">

@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from sqlmodel import Session, select
 
-from backend_M20_Course_Viva import bank, llm, materials
+from backend_M20_Course_Viva import bank, llm, materials, viva
 from backend_M20_Course_Viva.models import BankPage, Material, Question
 
 from .conftest import as_student
@@ -146,7 +146,8 @@ def test_the_scope_lists_parts_pictures_and_readiness(client, engine, model):
     parts = next(m for m in scope["materials"] if m["id"] == material_id)["parts"]
     assert [(p["first"], p["last"]) for p in parts] == [(1, 10), (11, 20), (21, 25)]
     assert parts[0]["picture_pages"] == [6]
-    assert parts[1]["picture_pages"] == [TITLE, 17], "a title is no more examinable than a picture"
+    # A title is no more examinable than a picture — and is said to be a title.
+    assert parts[1]["picture_pages"] == [17] and parts[1]["title_pages"] == [TITLE]
     assert [p["ready"] for p in parts] == [False, False, False]
 
 
@@ -239,3 +240,56 @@ def test_ten_pages_of_pictures_are_passed_over(client, engine, model):
         ).json()
     assert (state["next_part"]["first"], state["next_part"]["last"]) == (21, 25)
     assert "pages 21 to 25" in state["turns"][-1]["text"]
+
+
+def test_a_first_page_with_nothing_to_ask_does_not_end_the_viva(client, engine, monkeypatch):
+    """Live, 2026-10-28: the bank was being rewritten, so the first answer
+    banked on demand. The plan's first page — a one-line slide — gave no
+    question; the whole part was banked by that one call, and every other
+    page was then passed over as banked already, unread. The viva closed
+    straight after the warm-up: "That's everything the material gave me"."""
+
+    class SkipsTheShortSlide(StubLLM):
+        def structured(self, **kw):
+            result = super().structured(**kw)
+            if kw["job"] == "viva_bank":
+                result.data["questions"] = [q for q in result.data["questions"] if q["page"] != 1]
+            return result
+
+    llm.set_llm(SkipsTheShortSlide())
+    try:
+        one_line = "TD learning combines Monte Carlo methods with dynamic programming ideas."
+        assert bank.MIN_PAGE_CHARS <= len(one_line) < bank.COVER_CHARS
+        with Session(engine) as session:
+            material_id = materials.add_file(
+                session, course_id=COURSE, data=deck([one_line, slide(2), slide(3)]),
+                filename="td.pptx", added_by="student-parts", kind="slides", visibility="private",
+            ).material.id  # fmt: skip
+        # Nothing banked ahead: the answer banks on demand, as it did live.
+        monkeypatch.setattr(viva, "prefetch", lambda *a, **k: 0)
+        state = client.post(
+            "/v1/vivas", json={"course_id": COURSE, "material_ids": [material_id], "questions": 3},
+            headers=ME,
+        ).json()  # fmt: skip
+        state = client.post(
+            f"/v1/vivas/{state['id']}/answer", json={"text": "TD learning."}, headers=ME
+        ).json()
+        assert state["turns"][-1]["kind"] == "question", state["turns"][-1]["text"]
+    finally:
+        llm.set_llm(None)
+
+
+def test_a_part_that_runs_out_of_questions_still_offers_the_next(client, engine, model):
+    with Session(engine) as session:
+        material_id = _material(session).id
+    # Ten pages give fewer than twelve questions here; the viva runs out.
+    state = _start_part(client, material_id, 1, 10, questions=12)
+    while state["status"] == "live":
+        state = client.post(
+            f"/v1/vivas/{state['id']}/answer",
+            json={"text": "A page is evicted when memory is full."},
+            headers=ME,
+        ).json()
+    close = state["turns"][-1]["text"]
+    assert close.startswith("That's everything") and "pages 11 to 20" in close
+    assert state["end_reason"] == "complete" and state["next_part"]["first"] == 11

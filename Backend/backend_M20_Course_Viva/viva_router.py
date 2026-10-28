@@ -21,6 +21,7 @@ from .models import Material, Question, Viva
 from .router import curator, signed_in, viewer_of
 
 router = APIRouter(prefix="/v1/vivas", tags=["viva"])
+VIVA_SIGN_IN = "Sign in to take a viva."
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
@@ -64,7 +65,12 @@ def scope(course_id: str, db_session: SessionDep, request: Request) -> dict:
         for material_id in rows:
             banked[material_id] = banked.get(material_id, 0) + 1
     units = sorted({m.unit for m in found.materials if m.unit}, key=viva._unit_order)
+    examiner = viva.next_examiner(db_session, viewer.subject)
     return {
+        # Who will examine, and what they will say whatever is chosen: shown
+        # and made ahead while the student chooses.
+        "examiner": examiner,
+        "say_first": viva.said_first(examiner),
         "course": {"id": found.course.id, "code": found.course.code, "title": found.course.title},
         "materials": [
             {
@@ -106,7 +112,7 @@ class StartIn(BaseModel):
 def start(
     body: StartIn, background: BackgroundTasks, db_session: SessionDep, request: Request
 ) -> dict:
-    viewer = signed_in(request)
+    viewer = signed_in(request, VIVA_SIGN_IN)
     for span in (body.pages or {}).values():
         if len(span) != 2 or span[0] < 1 or span[1] < span[0]:
             raise HTTPException(status_code=422, detail="A page range is [first, last], from 1.")
@@ -130,13 +136,13 @@ def start(
 
 @router.get("")
 def mine(db_session: SessionDep, request: Request) -> list[dict]:
-    viewer = signed_in(request)
+    viewer = signed_in(request, VIVA_SIGN_IN)
     return viva.history(db_session, viewer.subject)
 
 
 @router.get("/{viva_id}")
 def get(viva_id: str, db_session: SessionDep, request: Request) -> dict:
-    return viva.state(db_session, _own(db_session, viva_id, signed_in(request)))
+    return viva.state(db_session, _own(db_session, viva_id, signed_in(request, VIVA_SIGN_IN)))
 
 
 class AnswerIn(BaseModel):
@@ -153,7 +159,7 @@ def answer(
     db_session: SessionDep,
     request: Request,
 ) -> dict:
-    row = _own(db_session, viva_id, signed_in(request))
+    row = _own(db_session, viva_id, signed_in(request, VIVA_SIGN_IN))
     with viva.lock(viva_id):
         db_session.refresh(row)
         try:
@@ -166,7 +172,7 @@ def answer(
 
 @router.post("/{viva_id}/hint")
 def hint(viva_id: str, db_session: SessionDep, request: Request) -> dict:
-    row = _own(db_session, viva_id, signed_in(request))
+    row = _own(db_session, viva_id, signed_in(request, VIVA_SIGN_IN))
     with viva.lock(viva_id):
         db_session.refresh(row)
         try:
@@ -178,7 +184,7 @@ def hint(viva_id: str, db_session: SessionDep, request: Request) -> dict:
 
 @router.post("/{viva_id}/end")
 def end(viva_id: str, db_session: SessionDep, request: Request) -> dict:
-    row = _own(db_session, viva_id, signed_in(request))
+    row = _own(db_session, viva_id, signed_in(request, VIVA_SIGN_IN))
     with viva.lock(viva_id):
         db_session.refresh(row)
         row = viva.end(db_session, row)
@@ -187,7 +193,7 @@ def end(viva_id: str, db_session: SessionDep, request: Request) -> dict:
 
 @router.get("/{viva_id}/report")
 def report(viva_id: str, db_session: SessionDep, request: Request) -> dict:
-    return viva.report(db_session, _own(db_session, viva_id, signed_in(request)))
+    return viva.report(db_session, _own(db_session, viva_id, signed_in(request, VIVA_SIGN_IN)))
 
 
 # ── The bank, reviewable (FR-20.14) ─────────────────────────────────────────
@@ -225,15 +231,22 @@ def bank_of(
     ).first()
     if material is None:
         raise HTTPException(status_code=404, detail="No such material.")
-    query = select(Question).where(Question.material_id == material_id)
-    if not retired:
-        query = query.where(Question.status != "retired")
+    # Never a draft a re-bank replaced: only what a person can act on.
+    shown = ("draft", "reviewed", "retired") if retired else ("draft", "reviewed")
+    query = select(Question).where(
+        Question.material_id == material_id, Question.status.in_(shown)
+    )
     rows = db_session.exec(query.order_by(Question.page, Question.span_start)).all()
     pages = db_session.exec(
         select(bank.BankPage).where(bank.BankPage.material_id == material_id)
     ).all()
     return {
-        "material": {"id": material.id, "title": material.title, "pages": material.pages},
+        "material": {
+            "id": material.id,
+            "course_id": material.course_id,
+            "title": material.title,
+            "pages": material.pages,
+        },
         "pages_banked": sum(1 for p in pages if bank.current(p)),
         # Banked pages that gave no question, and why ("too short to examine").
         "skipped": [

@@ -11,6 +11,8 @@ import { api } from "@ai/core";
 
 import type {
   AnswerTiming,
+  BankQuestion,
+  MaterialBank,
   StartVivaInput,
   VivaReport,
   VivaScope,
@@ -28,6 +30,7 @@ export const vivaKeys = {
   state: (id: string) => ["m20", "viva", "state", id] as const,
   report: (id: string) => ["m20", "viva", "report", id] as const,
   mine: ["m20", "viva", "mine"] as const,
+  bank: (materialId: string, retired: boolean) => ["m20", "viva", "bank", materialId, retired] as const,
 };
 
 export function useVivaScope(courseId: string) {
@@ -44,6 +47,8 @@ export function useStartViva() {
     onSuccess: (state) => {
       client.setQueryData(vivaKeys.state(state.id), state);
       client.invalidateQueries({ queryKey: vivaKeys.mine });
+      // The next viva has the next examiner, and a viva left open was ended.
+      client.invalidateQueries({ queryKey: vivaKeys.scopes });
     },
   });
 }
@@ -96,4 +101,22 @@ export function useVivaReport(id: string) {
 
 export function useMyVivas() {
   return useQuery({ queryKey: vivaKeys.mine, queryFn: () => api.get<VivaSummary[]>(V) });
+}
+
+/** A material's questions, for the placement cell to review (FR-20.14). */
+export function useBank(materialId: string, retired = false) {
+  return useQuery({
+    queryKey: vivaKeys.bank(materialId, retired),
+    queryFn: () =>
+      api.get<MaterialBank>(`${V}/bank/${seg(materialId)}${retired ? "?retired=true" : ""}`),
+  });
+}
+
+export function useReviewQuestion(materialId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; status: BankQuestion["status"] }) =>
+      api.post<BankQuestion>(`${V}/bank/questions/${seg(input.id)}`, { status: input.status }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["m20", "viva", "bank", materialId] }),
+  });
 }

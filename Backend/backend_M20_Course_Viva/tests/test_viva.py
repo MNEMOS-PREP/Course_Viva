@@ -137,7 +137,7 @@ def test_a_blank_gets_a_hint_then_is_taught_with_the_page(client, model):
     assert "no free frame" in _last(state)["text"]
     state = _say(client, state["id"], "Sorry, no idea.")
     teach = [t for t in state["turns"] if t["kind"] == "teach"][0]
-    assert "the page is evicted" in teach["text"] and "page 1 of lab6" in teach["text"]
+    assert "the page is evicted" in teach["text"].lower() and "page 1 of lab6" in teach["text"]
     assert teach["cite"]["page"] == 1 and teach["cite"]["quote"]
 
 
@@ -459,7 +459,9 @@ def test_a_page_banked_under_an_older_prompt_is_banked_again_before_it_is_asked(
     asked = [t for t in state["turns"] if t["kind"] == "question"][-1]
     with Session(engine) as session:
         question = session.exec(
-            select(Question).where(Question.status != "retired", Question.text == asked["text"])
+            select(Question).where(
+                Question.status.in_(("draft", "reviewed")), Question.text == asked["text"]
+            )
         ).first()
         assert question is not None and question.prompt_version == bank_module.PROMPT_VERSION
 
@@ -477,3 +479,66 @@ def test_the_examiner_is_one_of_the_panel_and_stays_for_the_viva(client, model):
     state = _start(client).json()
     assert state["examiner"]["name"] in [e["name"] for e in viva.EXAMINERS]
     assert state["examiner"]["name"] in state["turns"][0]["text"]
+
+
+def test_the_four_examiners_take_turns_and_the_start_panel_knows_who_is_next(client, model):
+    _upload(client)
+    seen = []
+    for _ in range(len(viva.EXAMINERS)):
+        scope = client.get(f"/v1/vivas/scope/{COURSE}", headers=ME).json()
+        state = _start(client).json()
+        assert state["examiner"] == scope["examiner"], "the panel showed who examines"
+        seen.append(state["examiner"]["id"])
+    assert sorted(seen) == sorted(e["id"] for e in viva.EXAMINERS)
+
+
+def test_the_opening_s_fixed_words_are_said_as_the_start_panel_made_them(client, model):
+    """The start panel has M11 make `say_first` ahead; the room then says the
+    same sentences, so they are waiting in M11's cache."""
+    _upload(client)
+    scope = client.get(f"/v1/vivas/scope/{COURSE}", headers=ME).json()
+    state = _start(client).json()
+    opening = " ".join(t["text"] for t in state["turns"])
+    made = scope["say_first"]
+    assert made[0] == f"Hello, I'm {state['examiner']['name']}."
+    for line in made[:3]:
+        assert line in opening
+    after = _say(client, state["id"], "To compare FIFO and LRU page replacement.")
+    assert _last(after)["kind"] == "question"
+    ack = next(t["text"] for t in after["turns"] if t["kind"] == "ack")
+    assert ack in made
+
+
+def test_a_refused_start_leaves_the_open_viva_open(client, model):
+    _upload(client)
+    open_one = _start(client).json()
+    refused = _start(client, material_ids=["no-such-material"])
+    assert refused.status_code == 404
+    again = client.get(f"/v1/vivas/{open_one['id']}", headers=ME).json()
+    assert again["status"] == "live", "only a viva that starts replaces the open one"
+
+
+def test_signing_in_is_asked_for_the_viva_not_for_adding_material(client, model):
+    response = client.get("/v1/vivas")
+    assert response.status_code == 401 and response.json()["detail"] == "Sign in to take a viva."
+
+
+def test_a_draft_the_bank_replaced_is_superseded_and_not_in_the_review_list(client, model, engine):
+    """"Retired" is what a person did; a curator's list of what they retired
+    had every draft a re-bank replaced in it (live, 2026-10-28)."""
+    from backend_M20_Course_Viva import bank as bank_module
+
+    material = _upload(client, visibility="platform")
+    _start(client)
+    with Session(engine) as session:
+        for row in session.exec(select(bank_module.BankPage)).all():
+            row.prompt_version = "bank-0"
+            session.add(row)
+        session.commit()
+        bank_module.ensure(session, material["id"], 1, llm=model)
+        statuses = {q.status for q in session.exec(select(Question)).all()}
+    assert "superseded" in statuses and "retired" not in statuses
+    every = client.get(
+        f"/v1/vivas/bank/{material['id']}", params={"retired": True}, headers=as_curator()
+    ).json()
+    assert {q["status"] for q in every["questions"]} == {"draft"}

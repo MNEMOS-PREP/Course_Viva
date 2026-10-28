@@ -31,8 +31,10 @@ export interface VivaPart {
   first: number;
   last: number;
   pages_with_text: number;
-  /** Pages with no text to ask from — a picture, or a title. */
+  /** Pages with no text at all: a diagram, or an equation drawn as a picture. */
   picture_pages: number[];
+  /** Pages with only a few words: a title slide. */
+  title_pages: number[];
   questions: number;
   /** Its questions are banked: the viva starts without waiting. */
   ready: boolean;
@@ -58,7 +60,20 @@ export interface NextPart {
   ready: boolean;
 }
 
+/** One of the platform's academic interviewers: M11 casts the voice
+ *  (`voice_id`) and has the photograph and, mostly, a 3D head (`id`). */
+export interface Examiner {
+  id: string;
+  name: string;
+  title: string;
+  voice_id: string;
+}
+
 export interface VivaScope {
+  /** Who examines this student's next viva (the four take turns). */
+  examiner: Examiner;
+  /** The opening lines said whatever is chosen: made ahead by M11. */
+  say_first: string[];
   course: { id: string; code: string; title: string };
   materials: {
     id: string;
@@ -120,9 +135,7 @@ export interface VivaState {
   scope: { label: string; excluded: { material_id: string; title: string; why: string }[] };
   /** A viva on ten pages of a longer document: which ten. */
   part: VivaSpan | null;
-  /** One of the platform's academic interviewers: M11 casts the voice
-   *  (`voice_id`) and has the photograph and, mostly, a 3D head (`id`). */
-  examiner: { id: string; name: string; title: string; voice_id: string };
+  examiner: Examiner;
   target: number;
   asked: number;
   turns: VivaTurn[];
@@ -210,6 +223,7 @@ export interface VivaReport {
     last: number;
     asked_from: number[];
     picture_pages: number[];
+    title_pages: number[];
   } | null;
   next_part: NextPart | null;
   counts: Record<ItemStatus, number>;
@@ -256,4 +270,34 @@ export interface AnswerTiming {
   silence_ms?: number;
   duration_ms?: number;
   spoken?: boolean;
+}
+
+/** A question in the bank, as the placement cell reviews it
+ *  (viva_router._question_out). */
+export interface BankQuestion {
+  id: string;
+  material_id: string;
+  page: number;
+  family: string;
+  answer_length: AnswerLength;
+  text: string;
+  quote: string;
+  answer_points: { point: string; probe: string }[];
+  hint: string;
+  difficulty: number;
+  status: "draft" | "reviewed" | "retired";
+  /** The model's id, or "rules". */
+  written_by: string;
+  /** Written under the bank's current prompt; an older one is rewritten when
+   *  a viva next reaches its page. */
+  current: boolean;
+}
+
+/** A material's bank (GET /v1/vivas/bank/{material_id}). */
+export interface MaterialBank {
+  material: { id: string; course_id: string; title: string; pages: number };
+  pages_banked: number;
+  /** Banked pages that gave no question, and why. */
+  skipped: { page: number; why: string }[];
+  questions: BankQuestion[];
 }

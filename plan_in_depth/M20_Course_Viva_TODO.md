@@ -1,6 +1,6 @@
 # M20 — TODO · Course Viva (Course Library + General Viva Practice)
 
-> **Completion: 76%** — 14 of 21 functional requirements met, 4 partly (2026-10-28: the viva, phase 2, built — spoken and seen, or typed). Spec: [M20_Course_Viva.md](M20_Course_Viva.md).
+> **Completion: 88%** — 17 of 21 functional requirements met, 3 partly (2026-10-28, evening: a long document ten pages at a time with no page lost, lab viva mode, the bank's review screen, and Library + Viva in the platform shell). Spec: [M20_Course_Viva.md](M20_Course_Viva.md).
 >
 > _Method: `(met + ½ × partial) ÷ total`, counted from the spec — the same measure as every other module._
 
@@ -18,6 +18,69 @@ Task list for taking **M20 — Course Viva** to 100% of [M20_Course_Viva.md](M20
 Legend: ✅ done · 🟡 partly done · ⬜ not started
 
 ---
+
+### 2026-10-28 (evening) — long documents, lab vivas, the review screen, the shell
+
+The user: "if a user uploads a long PDF, how do you chunk it so that no loss
+happens? Give him 10 pages at a time; while he finishes one we prepare the
+next", and "fix these all" (shell entries, review screen, lab mode, real
+material, speed, the silent 3D-head fallback in other modules). Tried on the
+user's 59-page TD / Q-learning / SARSA deck, live, against Groq.
+
+- ✅ **Ten pages at a time (`bank.PART_PAGES`).** A part is banked in one call
+  (59 calls for that deck before). Every page with ≥ 130 characters must get a
+  question — a call of its own if the model skips it, then a rule question,
+  then "what can you tell me about…" — so no page with text is lost. The scope
+  lists each part (done / ready / pictures / titles); the start panel opens on
+  the first part not done; while one part is answered the next is banked, and
+  the close line, the room and the report offer "go on to pages 11 to 20" (a
+  part of only pictures is passed over). The report says which pages the
+  questions came from, which are titles, which are pictures.
+- ✅ **Lab viva (FR-20.19).** `style: "lab"` walks the experiment in a lab
+  examiner's order — principle, procedure, observations, result, precautions,
+  sources of error — skipping a step the manual does not state, round again
+  when there are more questions; the aim is the warm-up, and a banked aim
+  question comes only when nothing else is left. New families aim / result /
+  precaution / error; Procedure, Observations and Sources of error headings by
+  rule. On by default on the start panel when the choice is a lab manual. The
+  report names each question's step.
+- ✅ **Review screen (FR-20.14):** `/library/questions/:material`, linked from
+  each material for the placement cell — every question with its page, quote,
+  points and their follow-ups, hint and author; mark reviewed, retire,
+  restore. A draft the bank replaced is `superseded`, not `retired` (the list
+  of what a person retired had 40 replaced drafts in it).
+- ✅ **In the platform shell (FR-20.21):** "Viva practice" and "Course library"
+  in Platform_Shell's menu (library under Browse for staff), the `library` and
+  `vivas` nouns → 8120, M20 in module.json (start.bat starts it).
+- ✅ **The opening, made ahead.** The four examiners take turns, so the start
+  panel knows who is next and shows them; their fixed lines ("Hello, I'm Dr.
+  Narayan.", "If you don't know something, just say so.", "Let's begin with an
+  easy one.", the acknowledgements) are made by M11 while the student chooses —
+  on the CPU the opening took ~20 s to say as it was made.
+- **Found on the real deck and fixed, each with a test:** equations in
+  Unicode's math letters ("𝑉 𝑆𝑡 ← 𝑉 𝑆𝑡 + 𝛼 𝑅𝑡+1", brackets lost) never matched
+  a quote that wrote "V(St)" — quotes now match on letters and digits in
+  order, math letters folded, and a quote with a "…" gap or a drifting tail
+  keeps what is the page's own; one invented family label failed a whole call
+  (HTTP 400, ten pages without questions) — labels are checked in code, not by
+  the schema; a viva whose first page had nothing to ask, banked on demand,
+  ended after the warm-up ("That's everything…") — every page then banked was
+  passed over unread; a part that ran out of questions never offered the next;
+  pages that are an assignment's instructions were asked about as if taught —
+  the model now lists logistics / references / outline / thanks pages, which are
+  kept with that reason; questions pointing at the slide ("How does the page
+  describe…", "in the MDP design slide", "as given", "the two bullet points")
+  are mended or dropped; ", what does…" after "Based on the slide" was cut;
+  the teach line ran points together ("…episode end; and Therefore…"); a
+  browser's "(1)" was read out in the title; a refused start ended the viva
+  left open; title slides were called pictures.
+- **Elsewhere:** M06's standalone app sent `/v1/voice` to M06 and never
+  pre-bundled the 3D-head renderer — the same silent fallback; the platform
+  shell found the renderer only when first asked for and reloaded the page
+  mid-render (a blank first screen after a restart).
+- **Tests:** 178 backend (132 → 178), lint clean; frontend typecheck and build
+  clean; the start panel, room, report and review screen walked headless, in
+  the standalone app and in the shell.
 
 ### 2026-10-26 — the library's privacy and search, fixed (`8b6725e`)
 
@@ -96,9 +159,9 @@ real examiner, crisp questions covering long and short answers"):**
 **The viva, as built (2026-10-28):**
 
 - **Question bank (`bank.py`):** a page is banked the first time a viva needs
-  it, for everyone after (`BankPage`). One model call per page (Groq
-  gpt-oss-120b, generation tier) drafts 3–6 questions, each with the words of
-  the page it is drawn from, answer points with a follow-up that does not give
+  it, for everyone after (`BankPage`) — with its whole part of ten pages, in
+  one model call (Groq gpt-oss-120b, generation tier) that drafts up to 4
+  questions a page, each with the words of the page it is drawn from, answer points with a follow-up that does not give
   them away, a hint and a difficulty. Code then drops any question whose quote
   is not on the page (AC-20.2), any answer point the page does not make (an
   acronym's expansion must be on the page whole), a third question on one
@@ -178,13 +241,21 @@ silently dropped.
    but unread). Each is one more PDF through the same reader.
 3. **Fill the library.** The placement cell fills `Course_Viva_Material` and
    imports it, then times one semester's folder (AC-20.7). The viva needs
-   material with text: today one test lab (23CSE214, Lab 6) is all there is.
-4. **Platform sign-in and the shell (FR-20.21):** "Library" and "Viva" in
-   Platform_Shell's menu; the shell proxies `/v1/voice` to M11 already.
-5. **A review screen for the bank (FR-20.14).** `GET /v1/vivas/bank/{id}` and
-   `POST /v1/vivas/bank/questions/{id}` exist; the placement cell has no page.
-6. **Lab viva mode (FR-20.19)** — the families are there; a mode that walks
-   aim → principle → procedure → observations → result → precautions.
+   material with text: today a test lab (23CSE214, Lab 6) and the user's
+   59-page RL deck (25AID301, private to the dev student) are what there is.
+4. **Pictures with no text.** 13 of that deck's 59 slides are images —
+   diagrams, the TD update drawn as a figure, the numerical example — and the
+   viva can only name them. OCR, or a vision model reading the slide, is the
+   open decision 3 below.
+5. **From the product research (2026-10-28):** after a right short answer,
+   the "why" question on the same passage (Sherpa probes a strong answer
+   deeper); "practise what you missed" — a viva on the questions got wrong
+   (NotebookLM reruns missed cards); a near-duplicate check in the bank (the
+   L2Q paper); the page before a part as context (overlapping windows, the
+   slide-deck question paper); the topics of each part on the start panel;
+   hedges ("I think", "maybe") among the speaking measures; the examiner
+   cutting in when a one-line question gets a long ramble.
+6. **Results to M04 behind consent (FR-20.20).**
 
 ## 1. The plan (project manager's view)
 
@@ -222,15 +293,15 @@ silently dropped.
 | FR-20.10 | ✅ Material shared across campuses by default; campus tag when local | P0 |
 | FR-20.11 | 🟡 Visibility, provenance and takedown — *private / held / platform, who / when / permission, takedown everywhere; the spec's "my campus" visibility is not built* | P0 |
 | FR-20.12 | ✅ Coverage view: what is still empty | P1 |
-| FR-20.13 | ✅ Viva scope: course, units, labs, documents/pages — *`GET /v1/vivas/scope/{course}`; a scan or a link is left out and named; page ranges by API, the UI offers course / unit / document* | P0 |
-| FR-20.14 | 🟡 Question bank per page-chunk, each question citing its span — *banked once per page, cited, checked; reviewable by API, no review screen yet (Next 5)* | P0 |
+| FR-20.13 | ✅ Viva scope: course, units, labs, documents/pages — *`GET /v1/vivas/scope/{course}`; a scan or a link is left out and named; the UI offers course / unit / document, and a long document ten pages at a time* | P0 |
+| FR-20.14 | ✅ Question bank per page-chunk, each question citing its span — *banked once per ten-page part, cited, checked; the placement cell reviews it at `/library/questions/:material`* | P0 |
 | FR-20.15 | ✅ Viva session: examiner persona, spoken or typed, follow-ups, hint then teach — *seen (3D head or photo) and heard through M11; answered aloud or typed* | P0 |
 | FR-20.16 | ✅ Marking against the cited span — *correct / partial / missed / incorrect / blank, with what was reached and what was missing* | P0 |
 | FR-20.17 | ✅ Speaking measures: pace, fillers, silences, answer length, unfinished answers — *pace and silences from spoken answers' timings (the wait counted from the end of the question); typed answers say pace is not measured* | P0 |
 | FR-20.18 | ✅ Report: knew / reread (page-cited) / how you sounded, with trend | P0 |
-| FR-20.19 | ⬜ Lab viva mode | P1 |
+| FR-20.19 | ✅ Lab viva mode — *principle → procedure → observations → result → precautions → sources of error, the aim as the warm-up* | P1 |
 | FR-20.20 | ⬜ Results to M04 behind consent | P1 |
-| FR-20.21 | ⬜ Platform sign-in and shell entries | P0 |
+| FR-20.21 | ✅ Platform sign-in and shell entries — *"Viva practice" and "Course library" in Platform_Shell, on the platform's session* | P0 |
 
 ## 3. Acceptance gates
 
@@ -260,6 +331,6 @@ Spec §9.
 
 1. Scope beyond B.Tech + AI (M.Tech, B.Sc., …)?
 2. Campuses beyond the five (Nagercoil, Haridwar, Faridabad also run B.Tech)?
-3. OCR for scanned lab manuals?
+3. OCR for scanned lab manuals — and for slides that are only a picture (13 of 59 in the RL deck)? A vision model on Groq could read a slide's image; it is a model call per picture.
 4. Who may upload — students, or faculty and class representatives only?
 5. Pre-2019 curricula (two-PDF layout): parse, or link only?

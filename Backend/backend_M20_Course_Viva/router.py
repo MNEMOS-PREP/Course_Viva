@@ -28,10 +28,10 @@ def viewer_of(request: Request) -> Viewer:
     return Viewer(subject=principal.subject, admin=principal.role in CURATORS)
 
 
-def signed_in(request: Request) -> Viewer:
+def signed_in(request: Request, why: str = "Sign in to do that.") -> Viewer:
     viewer = viewer_of(request)
     if viewer.subject is None:
-        raise HTTPException(status_code=401, detail="Sign in to add material.")
+        raise HTTPException(status_code=401, detail=why)
     return viewer
 
 
@@ -85,7 +85,7 @@ async def add_material(
     permission: str | None = Form(default=None),
     campus_id: str | None = Form(default=None),
 ) -> dict:
-    viewer = signed_in(request)
+    viewer = signed_in(request, "Sign in to add material.")
     try:
         if file is not None:
             data = await file.read(config.MAX_UPLOAD_BYTES + 1)

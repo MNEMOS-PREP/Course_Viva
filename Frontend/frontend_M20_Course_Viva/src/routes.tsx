@@ -6,7 +6,7 @@
  * The URL is the folder tree: /library/<campus>/<branch>/<year>/<code>. The
  * year is in the path because a course id is its curriculum and its code, and
  * a link a student keeps should still open the course they meant after a newer
- * curriculum is read. Static paths (search, coverage, import) outrank a campus.
+ * curriculum is read. Static paths (search, coverage, import, questions) outrank a campus.
  */
 
 import { Route } from "react-router-dom";
@@ -17,6 +17,7 @@ import { CoveragePage } from "./components/CoveragePage";
 import { ImportPage } from "./components/ImportPage";
 import { LibraryHome } from "./components/LibraryHome";
 import { ProgrammePage } from "./components/ProgrammePage";
+import { QuestionReview } from "./components/QuestionReview";
 import { SearchPage } from "./components/SearchPage";
 import { MyVivas } from "./components/MyVivas";
 import { VivaReport } from "./components/VivaReport";
@@ -33,6 +34,8 @@ export const m20Routes = (
     <Route path="/library/search" element={<SearchPage />} />
     <Route path="/library/coverage" element={<CoveragePage />} />
     <Route path="/library/import" element={<ImportPage />} />
+    {/* The placement cell reviews a material's viva questions (FR-20.14). */}
+    <Route path="/library/questions/:materialId" element={<QuestionReview />} />
     <Route path="/library/:campusId" element={<CampusPage />} />
     <Route path="/library/:campusId/:programmeId" element={<ProgrammePage />} />
     <Route path="/library/:campusId/:programmeId/:year/:code" element={<CoursePage />} />

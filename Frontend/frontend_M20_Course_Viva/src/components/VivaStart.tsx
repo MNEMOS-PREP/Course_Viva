@@ -10,10 +10,10 @@
  * ready, and which pages are only pictures.
  */
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { Icon, SkeletonRows, useSession } from "@ai/core";
+import { Icon, InterviewerPhoto, SkeletonRows, prepareLines, useSession } from "@ai/core";
 
 import { plural } from "../ui/bits";
 import { useStartViva, useVivaScope } from "../vivaApi";
@@ -51,6 +51,22 @@ export function VivaStart({ courseId }: { courseId: string }) {
   const [mode, setMode] = useState<"spoken" | "typed">("spoken");
   /** null: a lab viva when everything chosen is a lab manual. */
   const [labChoice, setLab] = useState<boolean | null>(null);
+
+  // The examiner's opening, made by M11 while the student chooses: on the
+  // CPU the greeting and warm-up took ~20 s to say, made as they were said.
+  // The words naming the scope are all that is left to make in the room.
+  const examiner = scope.data?.examiner;
+  const sayFirst = scope.data?.say_first.join("\n");
+  useEffect(() => {
+    if (!examiner || !sayFirst) return;
+    void prepareLines(
+      sayFirst.split("\n").map((text, i) => ({
+        id: `viva-opening-${examiner.id}-${i}`,
+        parts: [{ text, personaId: examiner.id, voiceId: examiner.voice_id }],
+      })),
+      "warm",
+    ).catch(() => undefined);
+  }, [examiner, sayFirst]);
 
   const frame = (body: ReactNode) => (
     <section aria-labelledby="viva-start" className="rounded-xl border border-brand-line bg-surface p-5">
@@ -152,6 +168,15 @@ export function VivaStart({ courseId }: { courseId: string }) {
         ones you have to explain — and helps when you are stuck. Every question comes from a page
         you can reread afterwards.
       </p>
+      <div className="mt-3 flex items-center gap-3 rounded-lg bg-surface-sunken px-3 py-2">
+        <InterviewerPhoto persona={s.examiner.id} name={s.examiner.name} size={40} />
+        <p className="min-w-0 text-sm leading-snug">
+          <span className="block font-medium text-ink">{s.examiner.name}</span>
+          <span className="block truncate text-xs text-ink-faint">
+            {s.examiner.title} · your examiner this time
+          </span>
+        </p>
+      </div>
       <fieldset className="mt-4">
         <legend className="eyebrow mb-1">Examine me on</legend>
         {option("all", pick.kind === "all", () => setPick({ kind: "all" }), "Everything here")}
@@ -271,7 +296,7 @@ function PartLabel({ part }: { part: VivaPart }) {
     <span className="flex flex-wrap items-baseline gap-x-2" data-numeric>
       <span>{pagesLabel(part.first, part.last).replace(/^p/, "P")}</span>
       {part.pages_with_text === 0 ? (
-        <span className="text-xs text-ink-faint">pictures only — nothing to ask</span>
+        <span className="text-xs text-ink-faint">titles and pictures only — nothing to ask</span>
       ) : (
         <>
           {part.done && <span className="text-xs font-medium text-confirmed">done</span>}

@@ -360,7 +360,8 @@ def test_with_no_model_a_page_is_banked_by_rule_then_by_the_model_when_one_answe
 def test_a_failed_model_call_falls_back_to_rules_and_says_why(session):
     material = _material(session)
     row = bank.ensure(session, material.id, 3, llm=StubLLM(fail={"viva_bank"}))
-    assert row.generated_by == bank.RULES and row.reason == "scripted failure"
+    # In words for the placement cell's screen; the call's own error is logged.
+    assert row.generated_by == bank.RULES and row.reason == bank.plain_reason("scripted failure")
 
 
 def test_taking_material_down_retires_its_questions(session):
@@ -369,7 +370,9 @@ def test_taking_material_down_retires_its_questions(session):
     bank.ensure(session, material.id, 1, llm=StubLLM())
     materials.take_down(session, material.id)
     live = session.exec(
-        select(Question).where(Question.material_id == material.id, Question.status != "retired")
+        select(Question).where(
+            Question.material_id == material.id, Question.status.in_(("draft", "reviewed"))
+        )
     ).all()
     assert live == []
 
@@ -473,3 +476,34 @@ def test_a_trend_needs_three_vivas_and_says_which_way():
     assert speaking.trend([s(9, 4000), s(8, 3000)]) is None
     falling = speaking.trend([s(9, 6000), s(7, 5000), s(4, 2500), s(3, 2000)])
     assert falling["fillers"] == "better" and falling["silences"] == "better"
+
+
+@pytest.mark.parametrize(
+    ("label", "family"),
+    [("compare", "compare"), ("comparison", "compare"), ("Procedural", "procedure"),
+     ("precautions", "precaution"), ("concept", "explain"), (None, "explain")],
+)  # fmt: skip
+def test_a_family_the_model_invents_is_read_as_one_of_ours(label, family):
+    assert bank.family_of(label) == family
+
+
+def test_a_failed_call_is_explained_in_words_not_its_error():
+    raw = 'HTTP 400: {"error":{"message":"Generated JSON does not match the expected schema."}}'
+    assert bank.plain_reason(raw).startswith("the model's answer was not in the form asked for")
+    assert "allowance" in bank.plain_reason("HTTP 429: rate limit reached")
+
+
+@pytest.mark.parametrize(
+    "hint",
+    ["Look at the two bullet points comparing DP and MC.", "Recall what the diagram shows.",
+     "Think of the plot on the right."],
+)  # fmt: skip
+def test_a_hint_about_what_the_slide_shows_points_at_the_page(hint):
+    assert bank._POINTS_AT_PAGE.search(hint)
+
+
+@pytest.mark.parametrize(
+    "hint", ["Think about which rows the table keeps after a join.", "Which vertex of the graph is visited first?"]
+)
+def test_a_table_or_a_graph_can_be_the_subject(hint):
+    assert not bank._POINTS_AT_PAGE.search(hint)

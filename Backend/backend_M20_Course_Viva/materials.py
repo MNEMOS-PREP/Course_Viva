@@ -6,6 +6,7 @@ second add returns the first, whatever the file was called.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from sqlalchemy import text
@@ -25,6 +26,19 @@ class MaterialError(ValueError):
 class Added:
     material: Material
     created: bool
+
+
+#: The copy mark a browser adds to a second download: "notes (1).pdf".
+_COPY_MARK = re.compile(r"\s*\(\d{1,3}\)$")
+
+
+def title_of(filename: str) -> str:
+    """A file's name as a title, said aloud by the examiner: no extension, no
+    browser copy mark, underscores as spaces (live, 2026-10-28: "what is TD
+    slide- Qlearning SARSA (1) about?")."""
+    stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+    stem = _COPY_MARK.sub("", stem.replace("_", " "))
+    return " ".join(stem.split())
 
 
 def _check(session: Session, course_id: str, kind: str, visibility: str, campus_id: str | None):
@@ -93,7 +107,7 @@ def add_file(
     material = Material(
         course_id=course_id,
         campus_id=campus_id,
-        title=(title or filename.rsplit(".", 1)[0]).strip()[:200] or "Untitled",
+        title=(title or title_of(filename)).strip()[:200] or "Untitled",
         kind=kind,
         unit=(unit or None),
         filename=filename[:255],

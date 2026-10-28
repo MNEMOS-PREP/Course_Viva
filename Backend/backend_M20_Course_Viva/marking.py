@@ -23,6 +23,7 @@ the report says the answer was matched, not read.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -84,8 +85,24 @@ _STOP = frozenset(
 )
 
 
+#: Unicode's mathematical letters — how a PDF's equations come out ("𝑉 𝑆𝑡 ←
+#: 𝑉 𝑆𝑡 + 𝛼 𝑅𝑡+1") — as the letters they are, so an answer or a quote that
+#: writes "V(St)" or "Rt+1" plainly is matched to the page (live, 2026-10-28:
+#: a TD deck's update rule lost its questions). One character for one, so an
+#: offset into folded text is the same offset into the page.
+_MATH = {
+    cp: folded
+    for cp in range(0x1D400, 0x1D800)
+    if len(folded := unicodedata.normalize("NFKC", chr(cp))) == 1 and folded != chr(cp)
+}
+
+
+def fold(text: str) -> str:
+    return text.translate(_MATH)
+
+
 def tokens(text: str) -> list[str]:
-    return [w.casefold() for w in _WORD.findall(text)]
+    return [w.casefold() for w in _WORD.findall(fold(text))]
 
 
 def is_blank(answer: str) -> bool:
