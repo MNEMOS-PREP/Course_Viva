@@ -521,3 +521,159 @@ def test_a_table_or_a_graph_can_be_the_subject(hint):
 )  # fmt: skip
 def test_the_same_question_reworded_is_asked_once(first, second, near):
     assert bank._near(first, second) is near
+
+
+# ── Ask about the subject, never about the notes (2026-10-31) ───────────────
+
+LEGEND_PAGE = (
+    "Places where the slides contain errors or inconsistencies are marked with a warning sign.\n"
+    "Monte Carlo methods learn from complete episodes of experience."
+)
+LABEL_PAGE = "Batch 4 — Monte Carlo PPT, Slides 31–40\nPPT 2 — TEMPORAL DIFFERENCING: TD LEARNING, SARSA"
+
+
+def _raw(question: str, quote: str, point: str = "complete episodes of experience"):
+    return {
+        "questions": [
+            {
+                "page": 1,
+                "length": "short",
+                "family": "explain",
+                "question": question,
+                "quote": quote,
+                "answer_points": [{"point": point, "probe": "Which episodes?"}],
+                "hint": "",
+                "difficulty": 1,
+            }
+        ],
+        "not_examinable": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Why are places where the slides contain errors marked with a warning symbol?",
+        'What does the term "Batch 4 – Monte Carlo PPT, Slides 31–40" refer to?',
+        "Which slide series follows the Monte Carlo material?",
+        "Summarize the steps shown in the Monte Carlo learning process infographic.",
+        "What should Slide 1 of the review convey?",
+    ],
+)
+def test_a_question_about_the_notes_themselves_is_dropped(question):
+    quote = "Monte Carlo methods learn from complete episodes of experience."
+    drafted = bank.check(_raw(question, quote), LEGEND_PAGE, "m1", 1, "stub")
+    assert drafted.questions == []
+    assert any("about the notes" in d for d in drafted.dropped)
+
+
+def test_a_quote_that_is_a_note_on_the_notes_has_nothing_to_ask_about():
+    drafted = bank.check(
+        _raw(
+            "What marks a place with an error?",
+            "Places where the slides contain errors or inconsistencies are marked with a warning sign.",
+            point="marked with a warning sign",
+        ),
+        LEGEND_PAGE,
+        "m1",
+        1,
+        "stub",
+    )
+    assert drafted.questions == []
+    assert any("note on the notes" in d for d in drafted.dropped)
+
+
+def test_a_question_on_what_the_page_teaches_is_kept_with_a_slide_number_in_its_quote():
+    page = "Key insight (Slide 10): the brain shifts its prediction signal earlier in time."
+    drafted = bank.check(
+        _raw(
+            "Why does the prediction signal shift earlier in time?",
+            "the brain shifts its prediction signal earlier in time",
+            point="the prediction signal shifts earlier",
+        ),
+        page,
+        "m1",
+        1,
+        "stub",
+    )
+    assert [q.text for q in drafted.questions] == [
+        "Why does the prediction signal shift earlier in time?"
+    ]
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "Which page does FIFO evict?",
+        "What does the presentation layer do?",
+        "How does a sliding window slide?",
+        "What is a deck of cards in this example?",
+        "How many page faults does this reference string cause?",
+    ],
+)
+def test_a_subject_that_shares_a_word_with_the_notes_is_still_asked(subject):
+    assert bank._ABOUT_THE_DOCUMENT.search(subject) is None
+
+
+def test_a_label_page_gets_no_last_resort_question():
+    assert bank._about(LABEL_PAGE, "m1", 2) == []
+
+
+@pytest.mark.parametrize(
+    ("said", "asked"),
+    [
+        (
+            "How does Monte Carlo prediction differ from TD(0) according to the classification table?",
+            "How does Monte Carlo prediction differ from TD(0)?",
+        ),
+        (
+            "What are the two kinds of model-free methods mentioned?",
+            "What are the two kinds of model-free methods?",
+        ),
+        ("How is a deadlock described?", "How is a deadlock described?"),
+        ("How are the files listed?", "How are the files listed?"),
+    ],
+)
+def test_pointing_at_the_page_at_the_end_of_a_question_is_taken_out_not_the_question(said, asked):
+    assert bank._as_question(said) == asked
+
+
+def test_a_contents_list_is_a_note_on_the_notes():
+    contents = "65 slides · covered in 7 batches (1–10, 11–20, 21–30, 31–40)"
+    drafted = bank.check(
+        _raw("How many batches cover the Monte Carlo method?", contents, point="covered in 7 batches"),
+        contents,
+        "m1",
+        1,
+        "stub",
+    )
+    assert drafted.questions == []
+    assert any("note on the notes" in d for d in drafted.dropped)
+
+
+# ── The last resort does not ask about the notes' own headings (2026-11-02) ──
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "REINFORCEMENT LEARNING \u00b7 CLASS TEST STUDY NOTES\n"
+        "Places where the slides contain errors or inconsistencies are marked with a warning sign.",
+        "CONTENTS: ALL BATCHES\nBatch 1 covers the first ten pages of the study notes here.",
+        "Summary\nThe value of a state is the expected return that follows it.",
+    ],
+)
+def test_a_title_or_contents_page_is_not_asked_about_by_rule(page):
+    assert bank._about(page, "m1", 1) == []
+
+
+def test_a_page_with_a_real_heading_still_gets_its_last_resort_question():
+    page = "Bellman equation\nThe value of a state is the expected return that follows it."
+    [q] = bank._about(page, "m1", 1)
+    assert q.text.casefold() == "what can you tell me about bellman equation?"
+    assert q.quote.startswith("The value of a state")
+
+
+def test_a_sentence_cut_in_the_middle_is_not_a_definition():
+    page = "A balance of exploration and is the idea that the agent must try new actions."
+    assert bank.by_rule(page, "m1", 1) == []

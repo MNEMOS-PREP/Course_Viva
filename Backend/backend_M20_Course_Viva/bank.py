@@ -62,12 +62,13 @@ from typing import Any
 from sqlmodel import Session, select
 
 from . import llm as llm_module
+from . import topic as topic_module
 from .marking import fold
 from .models import BankPage, Material, MaterialPage, Question
 
 log = logging.getLogger("uvicorn.error")
 
-PROMPT_VERSION = "bank-13"
+PROMPT_VERSION = "bank-15"
 RULES = "rules"
 #: A page shorter than this is a title ("Model Free learning", 19 characters).
 #: A slide's whole idea fits in far less than a page of notes, so the floor is
@@ -152,8 +153,9 @@ Rules:
 - The student cannot see the page during the viva. Never refer to it — no "according to the page", "based on this lab", "the first sentence", "the Result line" — in a question, a probe or a hint.
 - Every answer point must be something the page itself says. Do not add what you know about the topic that the page does not state (not even what an acronym stands for).
 - Ask about different parts of the page; no more than two questions from the same sentence.
+- Ask about the SUBJECT the pages teach — its concepts, mechanisms, formulas, steps and trade-offs — never about the document itself: its title, a heading or a section's name, a batch, slide or page number or range, which deck or part comes next, or what a symbol, colour or marker in the notes means. "What does the term 'Batch 4 — Monte Carlo PPT, Slides 31–40' refer to?" and "Why are errors marked with a warning symbol?" are questions about the notes, not about the course; an examiner would not ask them. Ask what the page says about Monte Carlo, not what the page is called.
 - A page that has nothing to examine (a title, an index, references) and is not under MUST COVER needs no question.
-- A page under MUST COVER that is not course content — course logistics (an assignment's or a project's instructions, deadlines, marks), a list of references, an outline or agenda, or thanks and credits — gets no question: list it under "not_examinable" with its "kind" (logistics, references, outline or thanks). Never list a page that teaches something.
+- A page under MUST COVER that is not course content — course logistics (an assignment's or a project's instructions, deadlines, marks), a list of references, an outline or agenda, thanks and credits, or the notes' own furniture (a legend for their symbols, a list of which batch or deck covers what, a section label) — gets no question: list it under "not_examinable" with its "kind" (logistics, references, outline, thanks or document). Never list a page that teaches something.
 
 A page under BEFORE is the one just before these: it is there so you know what they continue from. Ask nothing from it and quote nothing from it.
 
@@ -343,6 +345,7 @@ NOT_EXAMINABLE = {
     "references": "a list of references",
     "outline": "an outline of what is coming",
     "thanks": "thanks or credits",
+    "document": "the notes' own legend or contents, not course content",
 }
 
 
@@ -463,7 +466,38 @@ _ON_THE_PAGE = re.compile(
     # page?" (live, 2026-10-28): pointing, at the end.
     r"|,?\s+as\s+(?:given|shown|listed|stated|described)(?=\s*[?.!]?\s*$)"
     r"|,?\s+(?:(?:shown|given|listed|described|stated|mentioned|used)\s+)?(?:on|in)\s+"
-    r"(?:this|the)\s+(?:page|slide|passage|document|material|notes?|handout|manual)(?=\s*[?.!]?\s*$)",
+    r"(?:this|the)\s+(?:page|slide|passage|document|material|notes?|handout|manual)(?=\s*[?.!]?\s*$)"
+    # Live, 2026-11-02: "...according to the classification table?", "...methods
+    # mentioned?". Only "mentioned": "described" and "listed" can be the verb
+    # of the question ("How is a deadlock described?", "How are files listed?").
+    r"|,?\s+according\s+to\s+the\s+(?:[\w-]+\s+){0,2}(?:table|figure|diagram|chart|infographic)"
+    r"(?=\s*[?.!]?\s*$)"
+    r"|,?\s+mentioned(?=\s*[?.!]?\s*$)",
+    re.IGNORECASE,
+)
+#: A question about the notes rather than the subject: a slide or a range of
+#: pages by number, a batch, a deck by name, what the pictures "show". The
+#: student is asked what the course teaches, not what its files are called
+#: (live, 2026-10-31: "What does the term 'Batch 4 - Monte Carlo PPT, Slides
+#: 31-40' refer to?", "Which slide series follows the Monte Carlo material?").
+#: Not "page 5" alone, nor "the deck" or "the presentation": a page-replacement
+#: trace, a deck of cards and the presentation layer are subjects.
+_ABOUT_THE_DOCUMENT = re.compile(
+    r"\bslides?\s*\d"
+    r"|\bpages?\s*\d+\s*[-\u2013\u2014]\s*\d+"
+    r"|\bppts?\b|\bbatch\s*\d|\bslide\s+(?:series|deck)\b"
+    r"|\b(?:the|these|those|our)\s+slides\b|\binfographics?\b"
+    r"|\b(?:shown|depicted|illustrated|displayed|pictured)\s+(?:in|on)\s+(?:the|this|that)\b",
+    re.IGNORECASE,
+)
+#: A quote that is a note on the notes - "Places where the slides contain
+#: errors are marked with a warning symbol", a section's label - has no course
+#: content to ask about, whatever the question made of it.
+_NOTE_ON_THE_NOTES = re.compile(
+    r"\b(?:the|these|this|our)\s+(?:slides|slide\s+deck)\b"
+    r"|\bppts?\s*\d|\bslides?\s*\d+\s*[-\u2013\u2014]\s*\d+|\bbatch(?:es)?\s*\d"
+    # "65 slides \u00b7 covered in 7 batches (1-10, 11-20, 21-30, ...)": a contents list.
+    r"|\b\d+\s+slides\b|\d+\s*[-\u2013\u2014]\s*\d+\s*,\s*\d+\s*[-\u2013\u2014]\s*\d+",
     re.IGNORECASE,
 )
 #: Questions drawn from one span of the page, at most: three on one sentence
@@ -574,6 +608,9 @@ def check(
             # slide use for…" (live, 2026-10-28).
             dropped.append(f"points at the page: {text!r}")
             continue
+        if _ABOUT_THE_DOCUMENT.search(text):
+            dropped.append(f"about the notes, not the subject: {text!r}")
+            continue
         if _TWO_QUESTIONS.search(text):
             # "What does LRU stand for and how does it decide…" is two
             # questions; an examiner asks one and waits.
@@ -594,6 +631,9 @@ def check(
             continue
         page_no, span = found
         page_text = pages[page_no]
+        if _NOTE_ON_THE_NOTES.search(page_text[span[0] : span[1]]):
+            dropped.append(f"its quote is a note on the notes: {quote[:80]!r}")
+            continue
         key = " ".join(words(text))
         if key in seen:
             dropped.append("a repeat")
@@ -694,6 +734,8 @@ _HEADING_QUESTION = {
     "source of errors": ("What are the sources of error in this experiment?", "error"),
     "sources of errors": ("What are the sources of error in this experiment?", "error"),
 }
+#: A term does not end on a joining word.
+_NOT_A_TERM_END = {"and", "or", "of", "the", "to", "in", "on", "for", "with", "by", "as", "a", "an"}
 #: A "term" that is really a pronoun or a sentence opener is not a definition.
 _NOT_TERMS = {"it", "this", "that", "there", "here", "which", "they", "these", "those", "he", "she"}
 
@@ -742,6 +784,10 @@ def by_rule(page_text: str, material_id: str, page: int) -> list[Question]:
         term = " ".join(match.group("term").split())
         if term.casefold() in _NOT_TERMS or term.casefold().split()[0] in _NOT_TERMS:
             continue
+        if term.split()[-1].casefold() in _NOT_A_TERM_END:
+            # "What is an exploration and exploitation and?": a sentence cut in
+            # the middle, not a term.
+            continue
         verb = "are" if match.group("verb") == "are" else "is"
         # "a deadlock", but "Belady's anomaly" and "FIFO" take none.
         article = ""
@@ -771,6 +817,15 @@ def _about(page_text: str, material_id: str, page: int) -> list[Question]:
     lines = [ln.strip(" •-–*\t") for ln in page_text.splitlines() if ln.strip()]
     if not lines:
         return []
+    if (
+        _ABOUT_THE_DOCUMENT.search(lines[0])
+        or _NOTE_ON_THE_NOTES.search(lines[0])
+        or topic_module.labels_the_notes(lines[0])
+    ):
+        # A title, a contents heading, a section's label: the question would be
+        # about the notes (live, 2026-11-02: "What can you tell me about
+        # contents: all batches?"). Better none than that.
+        return []
     topic = re.split(r"[:—–]", lines[0])[0].strip().rstrip(".?!")
     if len(words(topic)) < 2 or len(words(topic)) > 12:
         topic = " ".join(lines[0].split()[:8]).rstrip(".?!:,")
@@ -779,6 +834,8 @@ def _about(page_text: str, material_id: str, page: int) -> list[Question]:
     after = first_line_end if len(lines) > 1 and first_line_end > 0 else 0
     for match in _SENTENCE.finditer(page_text, after):
         sentence = match.group(0).strip()
+        if _NOTE_ON_THE_NOTES.search(sentence) or _ABOUT_THE_DOCUMENT.search(sentence):
+            continue
         if len(words(sentence)) >= MIN_QUOTE_WORDS:
             start = match.start() + match.group(0).index(sentence[0])
             return [

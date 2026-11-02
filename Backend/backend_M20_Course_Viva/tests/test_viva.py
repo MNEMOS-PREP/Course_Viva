@@ -558,3 +558,45 @@ def test_a_ramble_the_room_cut_short_is_stopped_then_answered(client, model):
     assert "stop you there" in state["turns"][stop]["text"]
     report = client.get(f"/v1/vivas/{state['id']}/report", headers=ME).json()
     assert report["sounded"]["cut_in"] == 1
+
+
+# ── The warm-up is about the subject, not about the pages (2026-10-31) ──────
+
+REPEATING = [
+    "Monte Carlo methods learn from complete episodes of experience.",
+    "Monte Carlo estimates a state's value by averaging the returns that followed it.",
+    "Monte Carlo control improves the policy after every episode of experience.",
+]
+
+
+def _upload_notes(client, slides):
+    response = client.post(
+        f"/v1/library/courses/{COURSE}/materials",
+        files={"file": ("rl.pptx", deck(slides), "application/octet-stream")},
+        data={"kind": "notes", "unit": "RL", "visibility": "private"},
+        headers=ME,
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_the_warm_up_names_the_subject_the_pages_teach(client, model):
+    _upload_notes(client, REPEATING)
+    state = _start(client).json()
+    warmup = state["turns"][1]
+    assert warmup["kind"] == "warmup"
+    assert "what do you understand by Monte Carlo?" in warmup["text"]
+    assert "these pages cover" not in warmup["text"]
+
+
+def test_with_no_subject_that_stands_out_the_viva_opens_on_a_real_question(client, model):
+    _upload_notes(
+        client,
+        [
+            "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda sigma.",
+            "Omicron upsilon phi chi psi omega nova orbit quartz ripple saddle tundra.",
+        ],
+    )
+    state = _start(client).json()
+    kinds = [t["kind"] for t in state["turns"]]
+    assert kinds[0] == "greeting"
+    assert "warmup" not in kinds

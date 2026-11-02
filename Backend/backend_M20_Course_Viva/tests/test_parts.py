@@ -25,7 +25,7 @@ ME = as_student("student-parts")
 def slide(n: int) -> str:
     """A short slide that is still a whole idea (~150 characters, under the old 200 floor)."""
     return (
-        f"Slide {n} idea: when memory is full a page is evicted, and rule {n} decides which one "
+        f"Idea {n}: when memory is full a page is evicted, and rule {n} decides which one "
         f"goes. Rule {n} keeps the frames busy and the fault count low."
     )
 
@@ -135,7 +135,7 @@ def test_a_quote_on_another_page_of_the_call_is_given_its_true_page(session):
     material = _material(session)
     bank.ensure(session, material.id, 1, llm=Miscounts())
     page_two = bank.asked_from(session, [(material.id, 2)])
-    assert page_two and all("Slide 2 idea" in q.quote for q in page_two)
+    assert page_two and all("Idea 2:" in q.quote for q in page_two)
 
 
 def test_the_scope_lists_parts_pictures_and_readiness(client, engine, model):

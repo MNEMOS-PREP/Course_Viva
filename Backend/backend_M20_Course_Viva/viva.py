@@ -39,7 +39,7 @@ from typing import Any
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from . import bank, marking, reading, speaking
+from . import bank, marking, reading, speaking, topic
 from .library import Viewer, _unit_order, visible
 from .models import Course, Material, MaterialPage, Question, Viva, VivaTurn
 
@@ -798,21 +798,39 @@ def start(
         f"{target} questions. {NOT_KNOWING}",
         0,
     )
-    # An experiment opens on its aim; anything else on what it is about.
+    # An experiment opens on its aim; anything else on what the pages teach,
+    # named from their own words (`topic.py`) - never one sentence for every
+    # document ("what do these pages cover?", 2026-10-31). With no subject that
+    # stands out the viva goes straight to its first question: a warm-up about
+    # the wrong thing is worse than none.
     lab = style == "lab" or all(m.kind == "lab_manual" for m in scope.materials)
     if lab:
         warmup = f"{WARMUP_LEAD} In your own words, what is the aim of {scope.label}?"
-    elif span:
-        # The greeting has just named the document and its pages.
-        warmup = f"{WARMUP_LEAD} In your own words, what do these pages cover?"
     else:
-        warmup = f"{WARMUP_LEAD} In your own words, what is {scope.label} about?"
+        subject = topic.phrase(_plan_texts(session, viva))
+        warmup = (
+            f"{WARMUP_LEAD} In your own words, what do you understand by {subject}?"
+            if subject
+            else None
+        )
+    if warmup is None:
+        session.add(viva)
+        _ask_next(session, viva)
+        session.commit()
+        session.refresh(viva)
+        return viva
     _say(session, viva, "examiner", "warmup", warmup, 0)
     viva.open = {"item": 0, "kind": "warmup", "stage": "asked", "covered": [], "probed": []}
     session.add(viva)
     session.commit()
     session.refresh(viva)
     return viva
+
+
+def _plan_texts(session: Session, viva: Viva) -> list[str]:
+    """The text of the pages this viva will visit."""
+    rows = (session.get(MaterialPage, (material_id, page)) for material_id, page in viva.plan)
+    return [row.text for row in rows if row is not None]
 
 
 def _ask_next(session: Session, viva: Viva, *, llm: Any = None) -> None:
