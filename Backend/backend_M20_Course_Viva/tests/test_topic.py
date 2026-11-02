@@ -45,3 +45,17 @@ def test_a_heading_of_the_notes_own_furniture_is_not_a_subject():
         assert topic.labels_the_notes(heading), heading
     for heading in ("Bellman equation", "Page replacement", "Batch normalisation"):
         assert not topic.labels_the_notes(heading), heading
+
+
+def test_a_part_is_named_by_several_phrases_none_repeating_a_word():
+    pages = [
+        "Monte Carlo methods learn from complete episodes. Model-free learning needs no model.",
+        "Monte Carlo estimates value by averaging returns. Model-free learning uses samples.",
+        "Monte Carlo control improves the policy. Optimal policy follows from the values.",
+        "Model-free learning compares Monte Carlo with temporal difference. Optimal policy again.",
+    ]
+    found = topic.phrases(pages, 3)
+    assert found[0] == "Monte Carlo"
+    assert "model-free learning" in found
+    words = [word for each in found for word in each.lower().split()]
+    assert len(words) == len(set(words)), "a word is not said twice across the phrases"

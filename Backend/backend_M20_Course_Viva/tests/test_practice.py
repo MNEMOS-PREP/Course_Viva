@@ -172,13 +172,15 @@ def test_a_right_short_answer_is_followed_by_the_why_on_the_same_page(client):
 # ── What ten pages are about ────────────────────────────────────────────────
 
 
-def test_each_part_says_what_it_is_about_from_its_pages(client, engine, model):
-    body = (
-        "When memory is full a page is evicted, and the replacement rule decides which one "
-        "goes; the rule keeps the frames busy and the fault count low for the program."
-    )
+def test_a_part_with_no_phrase_that_stands_out_says_what_it_is_about_from_its_first_lines(
+    client, engine, model
+):
+    """Each page says something of its own, so no phrase is the part's subject
+    and its pages' first lines are what is left to name it by."""
     titles = ["Temporal Difference", "Monte Carlo methods", "SARSA", "Q-learning", "SARSA"]
-    pages = [f"{titles[n % 5]}\n{body}" for n in range(12)]
+    pages = [
+        f"{titles[n % 5]}\nzqa{n} zqb{n} zqc{n} zqd{n} zqe{n} zqf{n} zqg{n} zqh{n} zqi{n} zqj{n} zqk{n}" for n in range(12)
+    ]
     with Session(engine) as session:
         material_id = materials.add_file(
             session, course_id=COURSE, data=deck(pages), filename="rl.pptx",
@@ -193,3 +195,22 @@ def test_each_part_says_what_it_is_about_from_its_pages(client, engine, model):
         "Q-learning",
     ]
     assert parts[1]["topics"] == ["Temporal Difference", "Monte Carlo methods"]
+
+
+def test_a_part_is_named_by_what_its_pages_keep_saying_not_by_their_headings(client, engine, model):
+    """The part picker read "Batch 4 \u2014 Monte Carlo PPT, Slides 31\u201340 \u00b7 \u2026" on a deck's
+    section pages (2026-11-02): the headings of the notes, not what they teach."""
+    body = (
+        "When memory is full a page is evicted, and the replacement rule decides which one "
+        "goes; the rule keeps the frames busy and the fault count low for the program."
+    )
+    pages = [f"Batch {n} \u2014 Section page, Slides {n}\u2013{n + 9}\n{body}" for n in range(12)]
+    with Session(engine) as session:
+        material_id = materials.add_file(
+            session, course_id=COURSE, data=deck(pages), filename="rl2.pptx",
+            added_by="student-practice", kind="slides", visibility="private",
+        ).material.id  # fmt: skip
+    scope = client.get(f"/v1/vivas/scope/{COURSE}", headers=ME).json()
+    topics = next(m for m in scope["materials"] if m["id"] == material_id)["parts"][0]["topics"]
+    assert topics, "something says what the part is about"
+    assert not any("Batch" in t or "Slides" in t for t in topics), topics

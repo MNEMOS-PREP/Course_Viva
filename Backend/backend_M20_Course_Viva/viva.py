@@ -580,11 +580,26 @@ TOPICS, TOPIC_CHARS = 4, 48
 
 
 def _topics(session: Session, material_id: str, pages: list[int]) -> list[str]:
-    """What a part is about, from its pages' own first lines — a slide's
-    title, a section heading — so a student picks ten pages by what they
-    teach, not by their numbers."""
+    """What a part is about, so a student picks ten pages by what they teach,
+    not by their numbers: the phrases its pages keep saying (`topic.py`).
+    Only when none stands out, the pages' own first lines - a slide's title, a
+    section heading, which on a deck's section pages read "Batch 4 — Monte
+    Carlo PPT, Slides 31–40" (2026-11-02)."""
     if not pages:
         return []
+    said = topic.phrases(
+        [
+            row.text
+            for row in session.exec(
+                select(MaterialPage).where(
+                    MaterialPage.material_id == material_id, MaterialPage.page.in_(pages)
+                )
+            ).all()
+        ],
+        TOPICS,
+    )
+    if said:
+        return said
     rows = session.exec(
         select(MaterialPage.page, func.substr(MaterialPage.text, 1, 120)).where(
             MaterialPage.material_id == material_id, MaterialPage.page.in_(pages)

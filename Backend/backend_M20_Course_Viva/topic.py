@@ -85,10 +85,11 @@ def labels_the_notes(line: str) -> bool:
     return any(word in _FURNITURE for word in words) or all(word in _STOP for word in words)
 
 
-def phrase(pages: list[str]) -> str | None:
-    """The phrase most of `pages` say, or None when none stands out."""
+def phrases(pages: list[str], limit: int = 3) -> list[str]:
+    """The phrases most of `pages` say, best first, none sharing a word with a
+    better one ("Monte Carlo" and "carlo methods" are one subject, said once)."""
     if not pages:
-        return None
+        return []
     said_on: dict[str, set[int]] = defaultdict(set)
     times: Counter[str] = Counter()
     spelt: dict[str, Counter[str]] = defaultdict(Counter)
@@ -100,14 +101,29 @@ def phrase(pages: list[str]) -> str | None:
                 times[key] += 1
                 spelt[key][" ".join(words)] += 1
     need = max(2, math.ceil(len(pages) * _SHARE))
-    standing = [key for key, on in said_on.items() if len(on) >= need]
-    if not standing:
-        return None
-    best = max(standing, key=lambda key: (len(said_on[key]), times[key], len(key)))
-    written = spelt[best].most_common(1)[0][0]
-    first, *rest = written.split()
-    # A heading's capital is not part of the name: "Backup diagrams" is said
-    # "backup diagrams"; "Monte Carlo" keeps both.
-    if rest and all(word[:1].islower() for word in rest):
-        first = first[:1].lower() + first[1:]
-    return " ".join([first, *rest])
+    standing = sorted(
+        (key for key, on in said_on.items() if len(on) >= need),
+        key=lambda key: (-len(said_on[key]), -times[key], -len(key)),
+    )
+    out: list[str] = []
+    used: set[str] = set()
+    for key in standing:
+        if len(out) >= limit:
+            break
+        if used & set(key.split()):
+            continue
+        used.update(key.split())
+        written = spelt[key].most_common(1)[0][0]
+        first, *rest = written.split()
+        # A heading's capital is not part of the name: "Backup diagrams" is
+        # said "backup diagrams"; "Monte Carlo" keeps both.
+        if rest and all(word[:1].islower() for word in rest):
+            first = first[:1].lower() + first[1:]
+        out.append(" ".join([first, *rest]))
+    return out
+
+
+def phrase(pages: list[str]) -> str | None:
+    """The phrase most of `pages` say, or None when none stands out."""
+    found = phrases(pages, 1)
+    return found[0] if found else None

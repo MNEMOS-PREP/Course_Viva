@@ -6,9 +6,10 @@ import { Link } from "react-router-dom";
 
 import { EmptyState, ErrorNote, Icon, PageHeader, SkeletonRows } from "@ai/core";
 
-import { Pill, ROOT } from "../ui/bits";
+import { Pill } from "../ui/bits";
 import { useMyVivas } from "../vivaApi";
 import { scopeLabel } from "./NextPart";
+import { START } from "./StartViva";
 
 export function MyVivas() {
   const vivas = useMyVivas();
@@ -18,13 +19,22 @@ export function MyVivas() {
         title="Your vivas"
         subtitle="Practice vivas on your course material, and what each one showed."
         actions={
-          <Link
-            to="/viva/progress"
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3.5 text-sm font-medium text-ink hover:border-line-strong"
-          >
-            <Icon name="chart" size={14} />
-            Your progress
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/viva/progress"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3.5 text-sm font-medium text-ink hover:border-line-strong"
+            >
+              <Icon name="chart" size={14} />
+              Your progress
+            </Link>
+            <Link
+              to={START}
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand px-3.5 text-sm font-semibold text-on-brand hover:bg-brand-hover"
+            >
+              <Icon name="mic" size={14} />
+              Start a viva
+            </Link>
+          </div>
         }
       />
       {vivas.isPending ? (
@@ -36,8 +46,8 @@ export function MyVivas() {
           title="No vivas yet"
           icon="mic"
           action={
-            <Link to={ROOT} className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm font-semibold text-on-brand">
-              Find your course
+            <Link to={START} className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm font-semibold text-on-brand">
+              Start a viva
             </Link>
           }
         >

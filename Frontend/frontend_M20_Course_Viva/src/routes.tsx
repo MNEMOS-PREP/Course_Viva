@@ -20,6 +20,7 @@ import { ProgrammePage } from "./components/ProgrammePage";
 import { QuestionReview } from "./components/QuestionReview";
 import { SearchPage } from "./components/SearchPage";
 import { MyVivas } from "./components/MyVivas";
+import { StartViva } from "./components/StartViva";
 import { VivaProgress } from "./components/VivaProgress";
 import { VivaReport } from "./components/VivaReport";
 import { VivaRoom } from "./components/VivaRoom";
@@ -29,6 +30,8 @@ export const m20Routes = (
     {/* The viva (phase 2): /viva, a room, its report. `viva` is a noun no
         other module's screens use. */}
     <Route path="/viva" element={<MyVivas />} />
+    {/* Begin one: the courses already practised, or a search for another. */}
+    <Route path="/viva/new" element={<StartViva />} />
     {/* The student's progress over their vivas: what to work on. */}
     <Route path="/viva/progress" element={<VivaProgress />} />
     <Route path="/viva/:vivaId" element={<VivaRoom />} />
