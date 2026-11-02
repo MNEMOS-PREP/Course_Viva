@@ -55,6 +55,7 @@ import logging
 import math
 import re
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -68,7 +69,7 @@ from .models import BankPage, Material, MaterialPage, Question
 
 log = logging.getLogger("uvicorn.error")
 
-PROMPT_VERSION = "bank-15"
+PROMPT_VERSION = "bank-20"
 RULES = "rules"
 #: A page shorter than this is a title ("Model Free learning", 19 characters).
 #: A slide's whole idea fits in far less than a page of notes, so the floor is
@@ -472,7 +473,11 @@ _ON_THE_PAGE = re.compile(
     # of the question ("How is a deadlock described?", "How are files listed?").
     r"|,?\s+according\s+to\s+the\s+(?:[\w-]+\s+){0,2}(?:table|figure|diagram|chart|infographic)"
     r"(?=\s*[?.!]?\s*$)"
-    r"|,?\s+mentioned(?=\s*[?.!]?\s*$)",
+    r"|,?\s+mentioned(?=\s*[?.!]?\s*$)"
+    # Live, 2026-11-02: "...as stated here?", "...the Monte Carlo process shown?"
+    r"|,?\s+(?:as\s+)?(?:stated|shown|given|described|mentioned|listed)\s+here(?=\s*[?.!]?\s*$)"
+    r"|,?\s+shown(?=\s*[?.!]?\s*$)"
+    r"|,?\s+in\s+the\s+example(?=\s*[?.!]?\s*$)",
     re.IGNORECASE,
 )
 #: A question about the notes rather than the subject: a slide or a range of
@@ -487,7 +492,38 @@ _ABOUT_THE_DOCUMENT = re.compile(
     r"|\bpages?\s*\d+\s*[-\u2013\u2014]\s*\d+"
     r"|\bppts?\b|\bbatch\s*\d|\bslide\s+(?:series|deck)\b"
     r"|\b(?:the|these|those|our)\s+slides\b|\binfographics?\b"
+    # Live, 2026-11-02: "Why are Monte Carlo methods listed under model-free
+    # learning?", "What is the purpose of the batch structure?", "How does the
+    # quick revision sheet suggest comparing two policies?" - what the notes
+    # list and how they are arranged, not what they teach. (A trailing
+    # "mentioned" is stripped by `_as_question` before this is asked.)
+    r"|\blisted\b|\b(?:revision|study)\s+(?:sheet|guide)\b"
+    # Unanswerable without the page: "According to the table, which policy is
+    # optimal?", "In the example, which action has the highest Q-value?"
+    r"|\baccording\s+to\s+the\s+(?:[\w-]+\s+){0,2}(?:table|figure|diagram|chart|infographic|example)\b"
+    r"|^\s*in\s+the\s+example\b|\bworked\s+examples?\b|\b(?:the|this)\s+(?:given|above|following)\s+example\b"
+    r"|\bbatch(?:es)?\s+(?:structure|organi[sz]ation|plan)\b|\bpurpose\s+of\s+the\s+batch"
     r"|\b(?:shown|depicted|illustrated|displayed|pictured)\s+(?:in|on)\s+(?:the|this|that)\b",
+    re.IGNORECASE,
+)
+#: A hint that sends the student to look at the notes rather than think about the
+#: subject: "Look at the leftmost item in the infographic", "Check the list of
+#: gradient-free methods", "Focus on the description after the term" (live,
+#: 2026-11-02). A hint is about the subject; the page is shown after the answer.
+_POINTS_HINT = re.compile(
+    r"\b(?:look|check|see|refer|read|focus|go|turn)\s+(?:at|on|to|back\s+to|over|through)?\s*"
+    r"(?:the|that|this)\s+(?:[\w\u2011-]+\s+){0,3}?"
+    r"(?:list|table|description|items?|section|infographic|diagram|figure|lines?|part|page|"
+    r"slide|definition|formula|text|heading|bullets?|notes?|example)\b"
+    # "It appears in the list of basic terms", "Which algorithm is mentioned as
+    # off-policy?" (live, 2026-11-02): where the answer sits, not what it is.
+    r"|\b(?:appears?|(?:is|are)\s+(?:found|listed|mentioned|stated|given|shown|described))\s+"
+    r"(?:in|on|as|under)\b|\b(?:mentioned|listed)\b"
+    # "It's the first term in the table of basic terms", "Recall the inequality
+    # condition given." (live, 2026-11-02)
+    r"|\b(?:in|on|from|under)\s+(?:the|that|this)\s+(?:[\w\u2011-]+\s+){0,3}"
+    r"(?:table|list|section|infographic|diagram|figure|slide|page|heading|bullets?|notes?)\b"
+    r"|\bgiven\s*[.?!]*\s*$",
     re.IGNORECASE,
 )
 #: A quote that is a note on the notes - "Places where the slides contain
@@ -505,6 +541,10 @@ _NOTE_ON_THE_NOTES = re.compile(
 PER_SPAN = 2
 #: An examiner's question, spoken: past this it is a paragraph.
 MAX_QUESTION_WORDS = 28
+#: A question that stops where its object should be: "Which three major RL
+#: approaches are?" (live, 2026-11-02). Not "for" or "to": "What does LRU stand
+#: for?" is a whole question.
+_CUT_SHORT = re.compile(r"\b(?:are|is|was|were|the|a|an|and|or)\s*\?$", re.IGNORECASE)
 #: Two questions joined into one: "What is X and how does it Y?" — not a
 #: comparison, which is one question ("Which suffers, and which does not?").
 _TWO_QUESTIONS = re.compile(
@@ -611,6 +651,9 @@ def check(
         if _ABOUT_THE_DOCUMENT.search(text):
             dropped.append(f"about the notes, not the subject: {text!r}")
             continue
+        if _CUT_SHORT.search(text):
+            dropped.append(f"a question cut short: {text!r}")
+            continue
         if _TWO_QUESTIONS.search(text):
             # "What does LRU stand for and how does it decide…" is two
             # questions; an examiner asks one and waits.
@@ -661,7 +704,12 @@ def check(
             if not grounded(point, page_text, exact=bool(_EXPANSION.search(f"{text} {point}"))):
                 dropped.append(f"point not on the page: {point[:50]!r}")
                 continue
-            if not probe or _overlap(point, probe) > 0.6 or _POINTS_AT_PAGE.search(probe):
+            if (
+                not probe
+                or _overlap(point, probe) > 0.6
+                or _POINTS_AT_PAGE.search(probe)
+                or _POINTS_HINT.search(probe)
+            ):
                 # A probe that says the point, or points at a page the student
                 # cannot see, is not a follow-up.
                 probe = "Can you say more about that?"
@@ -673,7 +721,12 @@ def check(
         per_span[(page_no, span[0])] = per_span.get((page_no, span[0]), 0) + 1
         per_page[page_no] = per_page.get(page_no, 0) + 1
         hint = _clean(item.get("hint"), 240)
-        if not hint or _POINTS_AT_PAGE.search(hint):
+        if (
+            not hint
+            or _POINTS_AT_PAGE.search(hint)
+            or _POINTS_HINT.search(hint)
+            or _ABOUT_THE_DOCUMENT.search(hint)
+        ):
             # The first point's probe asks for it without giving it away —
             # the next best hint there is.
             probe = points[0]["probe"]
@@ -737,7 +790,14 @@ _HEADING_QUESTION = {
 #: A term does not end on a joining word.
 _NOT_A_TERM_END = {"and", "or", "of", "the", "to", "in", "on", "for", "with", "by", "as", "a", "an"}
 #: A "term" that is really a pronoun or a sentence opener is not a definition.
-_NOT_TERMS = {"it", "this", "that", "there", "here", "which", "they", "these", "those", "he", "she"}
+_NOT_TERMS = {
+    "it", "this", "that", "there", "here", "which", "they", "these", "those", "he", "she",
+    # sentence openers and joiners: "Because everything is...", "Its Q-values are..."
+    "because", "its", "their", "therefore", "thus", "hence", "also", "while", "since",
+    "although", "however", "when", "if", "once", "after", "before", "then", "so", "but",
+    "and", "or", "as", "for", "from", "with", "without", "each", "every", "both", "such",
+    "some", "any", "all", "no", "most", "many", "other", "another", "only", "just", "even",
+}
 
 
 def by_rule(page_text: str, material_id: str, page: int) -> list[Question]:
@@ -784,7 +844,7 @@ def by_rule(page_text: str, material_id: str, page: int) -> list[Question]:
         term = " ".join(match.group("term").split())
         if term.casefold() in _NOT_TERMS or term.casefold().split()[0] in _NOT_TERMS:
             continue
-        if term.split()[-1].casefold() in _NOT_A_TERM_END:
+        if term.split()[-1].casefold() in _NOT_A_TERM_END or term.endswith("-"):
             # "What is an exploration and exploitation and?": a sentence cut in
             # the middle, not a term.
             continue
@@ -1011,12 +1071,32 @@ def _draft(
     return _Drafts(by_page, written_by, reason, {p: w for p, w in skipped.items() if not by_page[p]})
 
 
-def ensure(session: Session, material_id: str, page: int, *, llm: Any = None) -> BankPage | None:
+@contextmanager
+def _held(lock: threading.Lock, wait: bool):
+    got = lock.acquire(blocking=wait)
+    try:
+        yield got
+    finally:
+        if got:
+            lock.release()
+
+
+def ensure(
+    session: Session, material_id: str, page: int, *, llm: Any = None, wait: bool = True
+) -> BankPage | None:
     """Bank the part `page` is in, if any of it is not banked yet — the whole
     part in as few calls as fit. Safe to call twice at once: the second caller
-    waits for the first and finds the part banked."""
+    waits for the first and finds the part banked.
+
+    `wait=False` is for work nobody is waiting on (a viva's prefetch): when
+    another caller is already banking this part it returns None at once. Left
+    to queue, every answer of every student on one deck parked a task on the
+    lock, each holding a database connection, until the pool of 15 ran out
+    (live, 2026-11-02: QueuePool limit reached, requests timing out)."""
     first, last = part_of(page)
-    with _lock_for(material_id, first):
+    with _held(_lock_for(material_id, first), wait) as got:
+        if not got:
+            return None
         material = session.get(Material, material_id)
         if material is None:
             return None

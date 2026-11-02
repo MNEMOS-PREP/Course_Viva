@@ -558,6 +558,13 @@ def _raw(question: str, quote: str, point: str = "complete episodes of experienc
         "Which slide series follows the Monte Carlo material?",
         "Summarize the steps shown in the Monte Carlo learning process infographic.",
         "What should Slide 1 of the review convey?",
+        "Why are Monte Carlo methods listed under model-free learning?",
+        "What is the purpose of the batch structure?",
+        "How does the quick revision sheet suggest comparing two policies?",
+        "Which algorithm listed is a gradient-based model-free method?",
+        "According to the table, which policy is optimal?",
+        "In the example, which action has the highest Q-value?",
+        "What is G1 for state B in the worked example?",
     ],
 )
 def test_a_question_about_the_notes_themselves_is_dropped(question):
@@ -677,3 +684,129 @@ def test_a_page_with_a_real_heading_still_gets_its_last_resort_question():
 def test_a_sentence_cut_in_the_middle_is_not_a_definition():
     page = "A balance of exploration and is the idea that the agent must try new actions."
     assert bank.by_rule(page, "m1", 1) == []
+
+
+# ── A hint is about the subject, not about where it is written (2026-11-02) ──
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [
+        "Look at the leftmost item in the infographic.",
+        "Check the list of gradient-free methods.",
+        "Check the description of the epsilon-greedy strategy.",
+        "Focus on the description after the term.",
+        "Look at the table of important differences.",
+    ],
+)
+def test_a_hint_that_sends_the_student_to_the_page_is_not_kept(hint):
+    page = "Monte Carlo methods learn from complete episodes of experience."
+    raw = _raw("What do Monte Carlo methods learn from?", page, point="complete episodes of experience")
+    raw["questions"][0]["hint"] = hint
+    [q] = bank.check(raw, page, "m1", 1, "stub").questions
+    assert q.hint != hint
+    assert not bank._POINTS_HINT.search(q.hint)
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [
+        "Think about the drawback of needing the transition probabilities.",
+        "Consider what information the algorithm needs beforehand.",
+        "What happens when the table is full?",
+    ],
+)
+def test_a_hint_about_the_subject_is_kept(hint):
+    assert bank._POINTS_HINT.search(hint) is None
+
+
+def test_background_banking_does_not_queue_behind_banking_already_under_way(session):
+    """Every answer queues a prefetch; left to wait on the part's lock each
+    held a database connection until the pool ran out (live, 2026-11-02)."""
+    import threading
+
+    lock = bank._lock_for("material-x", 1)
+    done = threading.Event()
+    result: list = []
+
+    def prefetch():
+        result.append(bank.ensure(session, "material-x", 1, wait=False))
+        done.set()
+
+    with lock:
+        threading.Thread(target=prefetch).start()
+        assert done.wait(timeout=2), "a prefetch waited on a part that is already being banked"
+    assert result == [None]
+
+
+@pytest.mark.parametrize(
+    ("question", "kept"),
+    [
+        ("Which three major RL approaches are?", False),
+        ("What is a policy?", True),
+        ("What does LRU stand for?", True),
+        ("What does the term refer to?", True),
+    ],
+)
+def test_a_question_cut_short_is_dropped_and_a_whole_one_is_not(question, kept):
+    page = "Monte Carlo methods learn from complete episodes of experience."
+    raw = _raw(question, page, point="complete episodes of experience")
+    drafted = bank.check(raw, page, "m1", 1, "stub")
+    assert bool(drafted.questions) is kept
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [
+        "It appears in the list of basic terms.",
+        "Which algorithm is mentioned as off-policy?",
+        "Look at the section on exploration.",
+    ],
+)
+def test_a_hint_that_says_where_the_answer_sits_is_not_kept(hint):
+    assert bank._POINTS_HINT.search(hint)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Because everything is estimated from samples, the method needs many episodes to settle.",
+        "Its Q- values are updated after every step the agent takes in the environment.",
+        "Thus the policy is improved after each episode of experience is complete.",
+    ],
+)
+def test_a_sentence_opener_is_not_a_term_to_define(line):
+    assert bank.by_rule(line, "m1", 1) == []
+
+
+@pytest.mark.parametrize(
+    ("said", "asked"),
+    [
+        (
+            "What is the key difference between model-based and model-free learning as stated here?",
+            "What is the key difference between model-based and model-free learning?",
+        ),
+        (
+            "What is the first step in the Monte Carlo learning process shown?",
+            "What is the first step in the Monte Carlo learning process?",
+        ),
+    ],
+)
+def test_a_trailing_pointer_is_taken_out(said, asked):
+    assert bank._as_question(said) == asked
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [
+        "It's the first term in the table of basic terms.",
+        "Recall the inequality condition given.",
+    ],
+)
+def test_more_hints_that_say_where_the_answer_sits_are_not_kept(hint):
+    assert bank._POINTS_HINT.search(hint)
+
+
+def test_a_trailing_in_the_example_is_taken_out_not_the_question():
+    said = "Describe the backward recursive formula used to compute returns in the example."
+    assert bank._as_question(said) == "Describe the backward recursive formula used to compute returns."

@@ -137,7 +137,8 @@ def test_a_blank_gets_a_hint_then_is_taught_with_the_page(client, model):
     assert "no free frame" in _last(state)["text"]
     state = _say(client, state["id"], "Sorry, no idea.")
     teach = [t for t in state["turns"] if t["kind"] == "teach"][0]
-    assert "the page is evicted" in teach["text"].lower() and "page 1 of lab6" in teach["text"]
+    assert "the page is evicted" in teach["text"].lower()
+    assert "page 1 of" not in teach["text"], "the examiner says the content, not the page number"
     assert teach["cite"]["page"] == 1 and teach["cite"]["quote"]
 
 
@@ -409,7 +410,7 @@ def test_short_and_long_questions_take_turns_starting_short(client, engine):
                 for long_one in result.data["questions"][:-1]:
                     short_one = {
                         **long_one,
-                        "question": f"Name one thing from this: {long_one['question'][-30:]}",
+                        "question": f"Name one thing about {long_one['question'][14:44]}?",
                         "answer_points": long_one["answer_points"][:1],
                     }
                     mixed += [long_one, short_one]
@@ -600,3 +601,58 @@ def test_with_no_subject_that_stands_out_the_viva_opens_on_a_real_question(clien
     kinds = [t["kind"] for t in state["turns"]]
     assert kinds[0] == "greeting"
     assert "warmup" not in kinds
+
+
+# ── A request is not an answer (2026-11-02) ─────────────────────────────────
+
+
+def _at_the_first_question(client):
+    _upload(client)
+    state = _start(client, questions=4).json()
+    state = _say(client, state["id"], "Comparing algorithms.")  # the warm-up
+    return state, _last(state)["text"]
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        "Sorry, can you repeat the question?",
+        "Could you say that again please",
+        "I didn't catch that",
+        "I don't understand the question",
+        "Pardon?",
+    ],
+)
+def test_asking_to_hear_the_question_again_is_not_marked_as_an_answer(client, model, request_):
+    state, asked = _at_the_first_question(client)
+    state = _say(client, state["id"], request_)
+    said = _last(state)
+    assert said["kind"] == "follow_up"
+    assert asked.split(". ")[-1][:25] in said["text"], "the question is put again"
+    assert state["open"]["stage"] == "asked", "no hint, no miss: nothing was answered"
+    assert not _last(state, "student").get("verdict")
+    # and the real answer afterwards is marked as the first answer
+    state = _say(client, state["id"], "A page is evicted when memory is full.")
+    assert _last(state, "student")["verdict"]
+
+
+def test_a_third_request_is_taken_as_an_answer(client, model):
+    state, _asked = _at_the_first_question(client)
+    for _ in range(2):
+        state = _say(client, state["id"], "Can you repeat the question?")
+    assert _last(state)["kind"] == "follow_up"
+    state = _say(client, state["id"], "Can you repeat the question?")
+    assert state["open"]["stage"] == "hint", "past two, it is marked as the answer it is"
+
+
+def test_an_answer_that_says_repeat_is_still_an_answer(client, model):
+    state, _asked = _at_the_first_question(client)
+    state = _say(client, state["id"], "The algorithm will repeat until the page table has no free frame.")
+    assert state["open"]["stage"] == "hint", "marked as an answer: wrong, so the hint"
+
+
+def test_asking_for_a_hint_in_words_gives_the_hint(client, model):
+    state, _asked = _at_the_first_question(client)
+    state = _say(client, state["id"], "Can I have a hint please?")
+    assert _last(state)["kind"] == "hint"
+    assert state["open"]["stage"] == "hint"

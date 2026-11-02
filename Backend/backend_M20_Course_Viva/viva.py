@@ -31,6 +31,7 @@ teaching line that closes it.
 from __future__ import annotations
 
 import random
+import re
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -472,14 +473,14 @@ def prefetch(session: Session, viva_id: str, *, llm: Any = None, ahead: int = PR
         if done >= ahead:
             break
         if not bank.current(session.get(bank.BankPage, ref)):
-            bank.ensure(session, ref[0], ref[1], llm=llm)
+            bank.ensure(session, ref[0], ref[1], llm=llm, wait=False)
             done += 1
     if done == 0:
         # This part is ready: the next one is prepared while the student
         # answers, so "pages 11–20" is ready when they finish these.
         after = next_part(session, viva)
         if after is not None and not after["ready"]:
-            bank.ensure(session, after["material_id"], after["first"], llm=llm)
+            bank.ensure(session, after["material_id"], after["first"], llm=llm, wait=False)
             done += 1
     return done
 
@@ -668,13 +669,12 @@ def _join_points(points: list[str]) -> str:
 
 
 def _teach(session: Session, question: Question, missing: list[str], whole: bool) -> str:
-    material = session.get(Material, question.material_id)
-    title = material.title if material else "the material"
+    """What the student missed, said as content. Where it is written travels
+    beside the line (`cite`, shown as the chip and in the report), not inside
+    it: "It's on page 5 of …" was the examiner reading out the notes' layout
+    (the user, 2026-11-02: "refer to content, not what page number says what")."""
     lead = "Let me tell you, then: " if whole else "The rest of it: "
-    return (
-        f"{lead}{_join_points(missing)} "
-        f"It's on page {question.page} of {title} — worth reading again."
-    )
+    return f"{lead}{_join_points(missing)}"
 
 
 def _hint(question: Question) -> str:
@@ -936,6 +936,50 @@ def _clean_timing(timing: dict | None) -> dict | None:
     return out
 
 
+#: What an examiner says before saying a question again.
+_AGAIN = ["Of course. ", "Sure. ", "Certainly. ", "Yes, of course. "]
+#: A request to hear the question again is not an answer to it (a spoken viva
+#: hears "sorry, can you say that again?" all the time, and used to mark it
+#: wrong and start the hint ladder). Short and phrased as a request: "repeat
+#: until convergence" is an answer about an algorithm.
+_REPEAT = re.compile(
+    r"\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:repeat|rephrase|say|ask|read)\b"
+    r"|\b(?:repeat|say|ask|read)\s+(?:the\s+question|that|it|this)\b"
+    r"|\bone\s+more\s+time\b|\bpardon\b|\bcome\s+again\b|\bwhat\s+was\s+the\s+question\b"
+    r"|\b(?:didn'?t|did\s+not)\s+(?:catch|hear|get|understand)\s+(?:that|the\s+question|what\s+you)\b"
+    r"|\b(?:don'?t|do\s+not)\s+understand\s+(?:the|this)\s+question\b",
+    re.IGNORECASE,
+)
+_HINT_REQUEST = re.compile(
+    r"\b(?:can|could|may)\s+(?:i|you)\s+(?:please\s+)?(?:have|get|give)\s+(?:me\s+)?a\s+hint\b"
+    r"|\b(?:give|need|want)\s+(?:me\s+)?a\s+hint\b|^\s*(?:a\s+)?hint\s*(?:please)?[.?!]*\s*$",
+    re.IGNORECASE,
+)
+_LEAD = re.compile(
+    r"^(?:Next: |Now, |Moving on\. |Alright\. |And |Let's begin with an easy one\. )"
+)
+MAX_REPEATS = 2
+#: A request is short; anything longer is an answer that happens to say "repeat".
+REQUEST_WORDS = 14
+
+
+def _asks_to_repeat(text: str) -> bool:
+    return len(text.split()) <= REQUEST_WORDS and bool(_REPEAT.search(text))
+
+
+def _asks_for_hint(text: str) -> bool:
+    return len(text.split()) <= REQUEST_WORDS and bool(_HINT_REQUEST.search(text))
+
+
+def _what_was_asked(session: Session, viva: Viva, state: dict[str, Any]) -> str | None:
+    """The examiner's own words for the thing being answered now."""
+    kinds = ("warmup",) if state["kind"] == "warmup" else ("question",)
+    turns = [t for t in _turns(session, viva.id) if t.role == "examiner" and t.kind in kinds]
+    if state["kind"] == "question":
+        turns = [t for t in turns if t.question_id == state.get("question_id")]
+    return turns[-1].text if turns else None
+
+
 def answer(
     session: Session, viva: Viva, text: str, timing: dict | None = None, *, llm: Any = None
 ) -> Viva:
@@ -944,6 +988,28 @@ def answer(
     text = " ".join((text or "").split())[:4000]
     state = dict(viva.open)
     item = state["item"]
+    question_id = state.get("question_id")
+    if _asks_for_hint(text) and state["kind"] == "question" and state["stage"] != "hint":
+        _say(session, viva, "student", "answer", text, item, question_id=question_id)
+        return hint(session, viva)
+    if _asks_to_repeat(text) and state.get("repeats", 0) < MAX_REPEATS:
+        asked = _what_was_asked(session, viva, state)
+        if asked:
+            _say(session, viva, "student", "answer", text, item, question_id=question_id)
+            # The question as it was put, without the lead it had ("Next: ").
+            body = re.sub(_LEAD, "", asked)
+            body = body[:1].upper() + body[1:]
+            _say(
+                session,
+                viva,
+                "examiner",
+                "follow_up",
+                _pick(viva, _AGAIN, state.get("repeats", 0)) + body,
+                item,
+                question_id=state.get("question_id"),
+            )
+            viva.open = {**state, "repeats": state.get("repeats", 0) + 1}
+            return _save(session, viva)
     # Marked BEFORE anything is written. SQLite has one writer: a request that
     # wrote its turn and then waited on the model held the write lock for the
     # whole call, and the bank filling the next pages in the background waited

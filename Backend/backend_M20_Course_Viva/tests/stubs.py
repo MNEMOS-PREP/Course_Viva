@@ -87,7 +87,7 @@ class StubLLM:
                     {
                         "page": number,
                         "family": "explain",
-                        "question": f"Explain this: {' '.join(first.split()[:6])}",
+                        "question": f"Explain this: {' '.join(first.split()[:6])}, in your own words?",
                         "quote": first,
                         "answer_points": [
                             {"point": "the page is evicted", "probe": "Which page goes?"},
