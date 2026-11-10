@@ -41,6 +41,7 @@ import {
   type SpokenTurn,
 } from "@ai/core";
 
+import { useLiveCaption } from "../liveCaption";
 import { VerdictBadge } from "../ui/verdict";
 import { useAnswer, useEndViva, useHint, useViva } from "../vivaApi";
 import { NextPart, scopeLabel } from "./NextPart";
@@ -58,6 +59,8 @@ type AnswerBy = "voice" | "typing";
  *  question answered for 25 s is a ramble; an explanation gets 90 s. */
 const RAMBLE_MS = { short: 25_000, long: 90_000 } as const;
 const ANSWER_BY_KEY = "m20.answerBy";
+/** How often a room whose recogniser was not there asks again. */
+const RECOGNISER_RECHECK_MS = 10_000;
 
 /** The clock a spoken turn's times are on (Core's ledger clock, `nowMs`, not
  *  exported in v0.38.0): epoch milliseconds, from the page's own timer. */
@@ -96,6 +99,15 @@ function asking(state: VivaState): VivaTurn | undefined {
   return [...state.turns]
     .reverse()
     .find((t) => t.role === "examiner" && ["warmup", "question", "follow_up", "hint"].includes(t.kind));
+}
+
+/** What "Repeat the question" says: the last question or follow-up — never
+ *  a hint, which `asking` counts as the line being answered. After a hint the
+ *  button said the hint again (2026-11-10, walked). */
+export function questionToRepeat(state: VivaState): VivaTurn | undefined {
+  return [...state.turns]
+    .reverse()
+    .find((t) => t.role === "examiner" && ["warmup", "question", "follow_up"].includes(t.kind));
 }
 
 function Room({ state }: { state: VivaState }) {
@@ -179,7 +191,24 @@ function Room({ state }: { state: VivaState }) {
   };
   const [recogniser, setRecogniser] = useState<boolean | null>(null);
   useEffect(() => {
-    void serverAsrAvailable().then(setRecogniser);
+    // Asked again while it is not there (2026-11-10): asked once, a room
+    // opened while M11 was still loading said "the voice engine is not
+    // running — type your answer" for the whole viva, though M11 was up
+    // seconds later.
+    let live = true;
+    let timer: number | undefined;
+    const check = () => {
+      void serverAsrAvailable().then((ok) => {
+        if (!live) return;
+        setRecogniser(ok);
+        if (!ok) timer = window.setTimeout(check, RECOGNISER_RECHECK_MS);
+      });
+    };
+    check();
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
   }, []);
   const [heardNote, setHeardNote] = useState<string | null>(null);
 
@@ -201,7 +230,11 @@ function Room({ state }: { state: VivaState }) {
   const flushTurn = useRef<() => void>(() => undefined);
   const limit = RAMBLE_MS[state.open?.answer_length === "short" ? "short" : "long"];
 
+  /** Counts spoken turns, so each starts a fresh caption. */
+  const [turnsSpoken, setTurnsSpoken] = useState(0);
+
   const onTurn = (turn: SpokenTurn) => {
+    setTurnsSpoken((n) => n + 1);
     const wasCut = cutIn.current;
     talkingSince.current = null;
     cutIn.current = false;
@@ -220,10 +253,14 @@ function Room({ state }: { state: VivaState }) {
   };
 
   const byVoice = answerBy === "voice" && recogniser === true;
+  // Open once the examiner has finished: a viva is not a conversation to
+  // talk over, and the mic hearing the examiner would be heard as an answer.
+  const micOpen = byVoice && live && !busy && !speaking;
+  const browserCaption = useLiveCaption(micOpen, `${current?.seq}-${turnsSpoken}`);
   const listening = useTurnTaking({
-    // Open once the examiner has finished: a viva is not a conversation to
-    // talk over, and the mic hearing the examiner would be heard as an answer.
-    enabled: byVoice && live && !busy && !speaking,
+    enabled: micOpen,
+    // Where the browser cannot caption the answer, M11 does (FR-11.3).
+    caption: !browserCaption.working,
     playing: voice.isSpeaking,
     context: () => current?.text ?? null,
     onSpeechStart: (at) => {
@@ -232,6 +269,10 @@ function Room({ state }: { state: VivaState }) {
     onTurn,
   });
   flushTurn.current = listening.flush;
+  /** The answer so far, while it is spoken: the browser's caption, or M11's. */
+  const heardSoFar = browserCaption.working
+    ? browserCaption.text
+    : (listening.caption?.words.map((w) => w.word).join(" ") ?? "");
 
   useEffect(() => {
     talkingSince.current = null;
@@ -379,10 +420,14 @@ function Room({ state }: { state: VivaState }) {
                 speaking={speaking}
                 listening={listening}
                 heardNote={heardNote}
+                heardSoFar={heardSoFar}
                 onAnswerBy={setAnswerBy}
                 onSend={(text, timing) => send(text, timing)}
                 onHint={() => hint.mutate(undefined)}
-                onRepeat={() => current && voice.repeat(current.text, `viva-${state.id}-again-${current.seq}`)}
+                onRepeat={() => {
+                  const question = questionToRepeat(state);
+                  if (question) voice.repeat(question.text, `viva-${state.id}-again-${question.seq}`);
+                }}
               />
             </div>
           ) : (
@@ -500,6 +545,7 @@ function AnswerPanel({
   speaking,
   listening,
   heardNote,
+  heardSoFar,
   onAnswerBy,
   onSend,
   onHint,
@@ -512,6 +558,7 @@ function AnswerPanel({
   speaking: boolean;
   listening: ReturnType<typeof useTurnTaking>;
   heardNote: string | null;
+  heardSoFar: string;
   onAnswerBy: (by: AnswerBy) => void;
   onSend: (text: string, timing: AnswerTiming) => void;
   onHint: () => void;
@@ -563,7 +610,8 @@ function AnswerPanel({
         <>
           {voiceDown && (
             <p className="mb-2 text-xs text-reported">
-              Spoken answers need the voice engine, which is not running — type your answer for now.
+              Spoken answers need the voice engine, which is not reachable right now — type your answer.
+              The microphone comes back by itself as soon as it is.
             </p>
           )}
           <TypedAnswer busy={busy} onSend={onSend} long={length === "long"} />
@@ -575,6 +623,7 @@ function AnswerPanel({
           speaking={speaking}
           listening={listening}
           heardNote={heardNote}
+          heardSoFar={heardSoFar}
           examiner={state.examiner.name}
         />
       )}
@@ -589,6 +638,7 @@ function SpokenAnswer({
   speaking,
   listening,
   heardNote,
+  heardSoFar,
   examiner,
 }: {
   busy: boolean;
@@ -596,6 +646,7 @@ function SpokenAnswer({
   speaking: boolean;
   listening: ReturnType<typeof useTurnTaking>;
   heardNote: string | null;
+  heardSoFar: string;
   examiner: string;
 }) {
   const line = listening.error
@@ -620,6 +671,16 @@ function SpokenAnswer({
         {line}
       </p>
       <Meter level={listening.level} on={listening.active && !speaking} />
+      {heardSoFar && !speaking && (
+        // What was heard so far — a caption only: the answer sent is M11's
+        // transcript of the whole turn, which can read a little differently.
+        <p
+          className="rounded-lg bg-surface-sunken px-3 py-2 text-[0.9375rem] leading-relaxed text-ink"
+          data-testid="heard-so-far"
+        >
+          {heardSoFar}
+        </p>
+      )}
       {heardNote && <p className="text-sm text-reported">{heardNote}</p>}
     </div>
   );
