@@ -40,7 +40,7 @@ from typing import Any
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from . import bank, marking, reading, speaking, topic
+from . import bank, m17_emit, marking, reading, speaking, topic
 from .library import Viewer, _unit_order, visible
 from .models import Course, Material, MaterialPage, Question, Viva, VivaTurn
 
@@ -1042,6 +1042,18 @@ def answer(
         item,
         question_id=state.get("question_id"),
         timing=_clean_timing(timing),
+    )
+    # M17, the communication coach (2026-11-22): every closed viva answer.
+    # Best effort, never raises.
+    _t = turn.timing or {}
+    m17_emit.send_turn(
+        turn_id=turn.id,
+        candidate_id=viva.student,
+        text=text,
+        spoken=bool(_t.get("spoken")),
+        duration_ms=_t.get("duration_ms"),
+        silence_ms=_t.get("silence_ms"),
+        cut_off=bool(_t.get("cut_in")),
     )
     if turn.timing and turn.timing.get("cut_in"):
         # An examiner stops a ramble, then answers what was said — the way a

@@ -14,6 +14,14 @@ from sqlmodel import Session
 
 from backend_M20_Course_Viva import catalogue, config, db
 
+
+@pytest.fixture(autouse=True)
+def _no_coach(monkeypatch):
+    """M17 hears every viva answer by default (2026-11-22); the suite opens no
+    sockets to a coach that is not running."""
+    monkeypatch.setenv("M20_M17_BASE_URL", "off")
+
+
 CATALOGUE = {
     "institution": {"id": "amrita", "name": "Amrita Vishwa Vidyapeetham", "display": "Amrita University"},
     "campuses": [{"id": "amritapuri", "name": "Amritapuri"}, {"id": "coimbatore", "name": "Coimbatore"}],
